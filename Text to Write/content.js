@@ -1,17 +1,18 @@
 let lastFocusedEl = null;
 let stopTyping = false;
 
-// Save when a typable element gains focus in this frame
 document.addEventListener("focusin", (e) => {
   const el = e.target;
   if (isTypable(el) || el.isContentEditable) {
     lastFocusedEl = el;
     notifySidebar(el);
+    // Tell the background this frame is now the active one.
+    // The background uses this to route "type" to exactly one frame,
+    // preventing the double-typing bug when multiple iframes exist.
+    browser.runtime.sendMessage({ action: "frame-focused" }).catch(() => {});
   }
 }, true);
 
-// Also save when it loses focus — fires at the exact moment the user clicks
-// "Type it" in the sidebar, so we never lose the reference
 document.addEventListener("blur", (e) => {
   const el = e.target;
   if (isTypable(el) || el.isContentEditable) {
@@ -22,12 +23,11 @@ document.addEventListener("blur", (e) => {
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "stop") {
     stopTyping = true;
-    return false; // no response needed
+    return false;
   }
 
   if (message.action !== "type") return false;
 
-  // Resolve target in this frame only
   const active = document.activeElement;
   const el =
     (lastFocusedEl && (isTypable(lastFocusedEl) || lastFocusedEl.isContentEditable))
@@ -36,28 +36,214 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ? active
         : null;
 
-  // If this frame has no target, return false so other frames (e.g. the
-  // Google Docs iframe) get a chance to handle the message instead
   if (!el) return false;
 
   stopTyping = false;
   el.focus();
 
-  typeText(el, message.text, message.delay, message.naturalPauses, message.pauseEvery, message.pauseDuration, message.varyTimes)
-    .then((stopped) => sendResponse({ success: true, stopped }))
-    .catch((err) => sendResponse({ success: false, error: err.message }));
+  const opts = {
+    naturalPauses: message.naturalPauses,
+    pauseEvery:    message.pauseEvery,
+    pauseDuration: message.pauseDuration,
+    varyTimes:     message.varyTimes,
+    mistakes:      message.mistakes,
+    mistakePause:  message.mistakePause,
+    mistakeRate:   message.mistakeRate,
+  };
 
-  return true; // keep channel open for async response
+  typeText(el, message.text, message.delay, opts)
+    .then((stopped) => sendResponse({ success: true, stopped }))
+    .catch((err)    => sendResponse({ success: false, error: err.message }));
+
+  return true;
 });
 
+// ---------------------------------------------------------------------------
+// Core typing loop
+// ---------------------------------------------------------------------------
+
+async function typeText(el, text, delay, opts) {
+  // Split into alternating word / non-word tokens so we can apply mistakes
+  // only to real words while still typing spaces/punctuation normally.
+  const tokens = text.match(/[a-zA-Z']+|[^a-zA-Z']+/g) || [];
+
+  let elapsed = 0;
+  let timeUntilPause = opts.naturalPauses
+    ? applyVariance(opts.pauseEvery, opts.varyTimes)
+    : Infinity;
+
+  for (const token of tokens) {
+    if (stopTyping) return true;
+
+    const isWord = /^[a-zA-Z']{3,}$/.test(token); // only mistake words of 3+ chars
+    const doMistake = opts.mistakes && isWord && Math.random() < opts.mistakeRate;
+
+    if (doMistake) {
+      const misspelled = generateMistake(token);
+
+      // Type the wrong version
+      for (const char of misspelled) {
+        if (stopTyping) return true;
+        await typeCharacter(el, char);
+        const d = delay + jitter(delay * 0.3);
+        await sleep(d);
+        elapsed += d;
+      }
+
+      // Pause — "noticing" the mistake
+      if (await interruptibleSleep(applyVariance(opts.mistakePause, opts.varyTimes))) return true;
+
+      // Delete the misspelled word, one backspace per character
+      for (let i = 0; i < misspelled.length; i++) {
+        if (stopTyping) return true;
+        await typeBackspace(el);
+        await sleep(delay + jitter(delay * 0.3));
+      }
+
+      // Pause — "thinking" before retyping
+      if (await interruptibleSleep(applyVariance(opts.mistakePause, opts.varyTimes))) return true;
+
+      // Retype correctly
+      for (const char of token) {
+        if (stopTyping) return true;
+        await typeCharacter(el, char);
+        const d = delay + jitter(delay * 0.3);
+        await sleep(d);
+        elapsed += d;
+      }
+    } else {
+      // Normal typing
+      for (const char of token) {
+        if (stopTyping) return true;
+
+        // Natural pause — fire at token boundaries only (between words)
+        if (opts.naturalPauses && elapsed >= timeUntilPause) {
+          if (await interruptibleSleep(applyVariance(opts.pauseDuration, opts.varyTimes))) return true;
+          elapsed = 0;
+          timeUntilPause = applyVariance(opts.pauseEvery, opts.varyTimes);
+        }
+
+        await typeCharacter(el, char);
+        const d = delay + jitter(delay * 0.3);
+        await sleep(d);
+        elapsed += d;
+      }
+    }
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Mistake generator — realistic QWERTY typos
+// ---------------------------------------------------------------------------
+
+const qwertyNeighbors = {
+  a:'sqwz', b:'vghn', c:'xdfv', d:'serfcx', e:'wsdr', f:'drtgvc',
+  g:'ftyhbv', h:'gyujnb', i:'ujko', j:'huikmnb', k:'jiolm', l:'kop',
+  m:'njk', n:'bhjm', o:'iklp', p:'ol', q:'wa', r:'edft',
+  s:'awedxz', t:'rfgy', u:'yhji', v:'cfgb', w:'qase', x:'zsdc',
+  y:'tghu', z:'asx',
+};
+
+function generateMistake(word) {
+  const type = Math.floor(Math.random() * 3);
+
+  if (type === 0) {
+    // Swap one character for an adjacent key
+    const pos = 1 + Math.floor(Math.random() * (word.length - 1));
+    const key = word[pos].toLowerCase();
+    const neighbors = qwertyNeighbors[key];
+    if (!neighbors) return doubleLetter(word); // fallback
+    const wrong = neighbors[Math.floor(Math.random() * neighbors.length)];
+    const replacement = /[A-Z]/.test(word[pos]) ? wrong.toUpperCase() : wrong;
+    return word.slice(0, pos) + replacement + word.slice(pos + 1);
+  }
+
+  if (type === 1) {
+    // Transpose two adjacent letters
+    const pos = Math.floor(Math.random() * (word.length - 1));
+    return word.slice(0, pos) + word[pos + 1] + word[pos] + word.slice(pos + 2);
+  }
+
+  // Double a letter
+  return doubleLetter(word);
+}
+
+function doubleLetter(word) {
+  const pos = Math.floor(Math.random() * word.length);
+  return word.slice(0, pos) + word[pos] + word.slice(pos);
+}
+
+// ---------------------------------------------------------------------------
+// Backspace simulation
+// ---------------------------------------------------------------------------
+
+function typeBackspace(el) {
+  return new Promise((resolve) => {
+    el.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Backspace", code: "Backspace", keyCode: 8, which: 8,
+      bubbles: true, cancelable: true,
+    }));
+
+    if (el.isContentEditable) {
+      deleteLastCharContentEditable(el);
+    } else {
+      deleteLastCharInput(el);
+    }
+
+    el.dispatchEvent(new InputEvent("input", {
+      inputType: "deleteContentBackward",
+      bubbles: true, cancelable: false,
+    }));
+
+    el.dispatchEvent(new KeyboardEvent("keyup", {
+      key: "Backspace", code: "Backspace", keyCode: 8, which: 8,
+      bubbles: true, cancelable: true,
+    }));
+
+    resolve();
+  });
+}
+
+function deleteLastCharInput(el) {
+  const start = el.selectionStart;
+  const end   = el.selectionEnd;
+  if (start === 0 && end === 0) return;
+  const value = el.value;
+  const nativeSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
+  const newVal = value.slice(0, start - 1) + value.slice(end);
+  if (nativeSetter) {
+    nativeSetter.call(el, newVal);
+  } else {
+    el.value = newVal;
+  }
+  el.selectionStart = start - 1;
+  el.selectionEnd   = start - 1;
+}
+
+function deleteLastCharContentEditable(el) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  if (range.startOffset > 0) {
+    range.setStart(range.startContainer, range.startOffset - 1);
+    range.deleteContents();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
 function notifySidebar(el) {
-  const tag = el.tagName.toLowerCase();
+  const tag      = el.tagName.toLowerCase();
   const typeAttr = el.type ? ` [${el.type}]` : "";
-  const hint = el.placeholder || el.name || el.id || el.getAttribute("aria-label") || "";
+  const hint     = el.placeholder || el.name || el.id || el.getAttribute("aria-label") || "";
   browser.runtime.sendMessage({
     action: "targetUpdate",
     description: `${tag}${typeAttr}${hint ? " — " + hint : ""}`,
-  }).catch(() => {}); // sidebar may not be open yet
+  }).catch(() => {});
 }
 
 function isTypable(el) {
@@ -71,49 +257,6 @@ function isTypable(el) {
   return false;
 }
 
-async function typeText(el, text, delay, naturalPauses, pauseEvery, pauseDuration, varyTimes) {
-  let timeUntilPause = naturalPauses ? applyVariance(pauseEvery, varyTimes) : Infinity;
-  let elapsed = 0;
-
-  for (const char of text) {
-    if (stopTyping) return true;
-
-    if (naturalPauses && elapsed >= timeUntilPause) {
-      const actualDuration = applyVariance(pauseDuration, varyTimes);
-      const stopped = await interruptibleSleep(actualDuration);
-      if (stopped) return true;
-      elapsed = 0;
-      // Pick a fresh interval for the next pause
-      timeUntilPause = applyVariance(pauseEvery, varyTimes);
-    }
-
-    await typeCharacter(el, char);
-    const charDelay = delay + jitter(delay * 0.3);
-    await sleep(charDelay);
-    elapsed += charDelay;
-  }
-  return false;
-}
-
-// Adds or subtracts 1–3 seconds randomly when vary is enabled
-function applyVariance(ms, vary) {
-  if (!vary) return ms;
-  const sign = Math.random() < 0.5 ? 1 : -1;
-  const varianceMs = (1 + Math.random() * 2) * 1000; // 1000–3000 ms
-  return Math.max(1000, ms + sign * varianceMs);
-}
-
-// Sleeps for `ms` but wakes up every 100ms to check if stop was requested
-async function interruptibleSleep(ms) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (stopTyping) return true;
-    await sleep(Math.min(100, end - Date.now()));
-  }
-  return false;
-}
-
-
 function typeCharacter(el, char) {
   return new Promise((resolve) => {
     const keyCode = char.charCodeAt(0);
@@ -123,7 +266,6 @@ function typeCharacter(el, char) {
       keyCode, charCode: 0, which: keyCode,
       bubbles: true, cancelable: true,
     }));
-
     el.dispatchEvent(new KeyboardEvent("keypress", {
       key: char, code: `Key${char.toUpperCase()}`,
       keyCode, charCode: keyCode, which: keyCode,
@@ -140,7 +282,6 @@ function typeCharacter(el, char) {
       data: char, inputType: "insertText",
       bubbles: true, cancelable: false,
     }));
-
     el.dispatchEvent(new KeyboardEvent("keyup", {
       key: char, code: `Key${char.toUpperCase()}`,
       keyCode, charCode: 0, which: keyCode,
@@ -153,7 +294,7 @@ function typeCharacter(el, char) {
 
 function insertAtCursor(el, char) {
   const start = el.selectionStart;
-  const end = el.selectionEnd;
+  const end   = el.selectionEnd;
   const value = el.value;
   const nativeSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
   if (nativeSetter) {
@@ -162,7 +303,7 @@ function insertAtCursor(el, char) {
     el.value = value.slice(0, start) + char + value.slice(end);
   }
   el.selectionStart = start + 1;
-  el.selectionEnd = start + 1;
+  el.selectionEnd   = start + 1;
 }
 
 function insertIntoContentEditable(el, char) {
@@ -176,6 +317,22 @@ function insertIntoContentEditable(el, char) {
   range.setEndAfter(textNode);
   selection.removeAllRanges();
   selection.addRange(range);
+}
+
+function applyVariance(ms, vary) {
+  if (!vary) return ms;
+  const sign        = Math.random() < 0.5 ? 1 : -1;
+  const varianceMs  = (1 + Math.random() * 2) * 1000;
+  return Math.max(1000, ms + sign * varianceMs);
+}
+
+async function interruptibleSleep(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (stopTyping) return true;
+    await sleep(Math.min(100, end - Date.now()));
+  }
+  return false;
 }
 
 function sleep(ms) {

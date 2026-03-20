@@ -408,6 +408,48 @@
       color: #6c7086;
       margin-top: 1px;
     }
+
+    /* Chevron arrow on the spelling mistakes row */
+    .option-row .chevron {
+      margin-left: auto;
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #585b70;
+      pointer-events: none;
+    }
+
+    .option-row .chevron svg {
+      display: block;
+    }
+
+    .option-row.expanded .chevron {
+      transform: rotate(180deg);
+      color: #89b4fa;
+    }
+
+    /* Collapsible mistake fields */
+    .mistake-collapsible {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .mistake-collapsible.expanded {
+      grid-template-rows: 1fr;
+    }
+
+    .mistake-collapsible-inner {
+      overflow: hidden;
+    }
+
+    .mistake-collapsible-inner .pause-fields {
+      padding-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -459,6 +501,47 @@
         Vary times
         <span>Shifts each value by ±1–3 s randomly</span>
       </label>
+    </div>
+  </div>
+
+  <div class="option-row" id="mistakes-row" style="margin-top: 8px; cursor: pointer;">
+    <input type="checkbox" id="make-mistakes">
+    <label for="make-mistakes" style="pointer-events: none;">
+      Spelling mistakes
+      <span>Randomly mistype words, then self-correct</span>
+    </label>
+    <span class="chevron">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+  </div>
+
+  <div class="mistake-collapsible" id="mistake-collapsible">
+    <div class="mistake-collapsible-inner">
+      <div class="pause-fields" id="mistake-fields">
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Mistake pause
+            <span>Pause after mistake and after deleting</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="mistake-pause" value="5" min="1" max="999">
+            <span class="unit">sec</span>
+          </div>
+        </div>
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Mistake rate
+            <span>How often mistakes occur</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="mistake-rate" value="10" min="1" max="50">
+            <span class="unit">%</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
