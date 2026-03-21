@@ -131,6 +131,15 @@
       cursor: not-allowed;
     }
 
+    /* Pause state — warm red that sits opposite the green */
+    #start-btn.pause-mode {
+      background: #f38ba8;
+    }
+
+    #start-btn.pause-mode:hover:not(:disabled) {
+      background: #f5a3b8;
+    }
+
     #stop-btn {
       padding: 10px 14px;
       background: transparent;
@@ -432,24 +441,30 @@
       color: #89b4fa;
     }
 
-    /* Collapsible mistake fields */
-    .mistake-collapsible {
+    /* Collapsible panels (shared by natural pauses + spelling mistakes) */
+    .collapsible {
       display: grid;
       grid-template-rows: 0fr;
       transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .mistake-collapsible.expanded {
+    .collapsible.expanded {
       grid-template-rows: 1fr;
     }
 
-    .mistake-collapsible-inner {
+    .collapsible-inner {
       overflow: hidden;
     }
 
-    .mistake-collapsible-inner .pause-fields {
+    .collapsible-inner .pause-fields {
       padding-top: 8px;
     }
+
+    /* Keep old names as aliases so existing mistake markup still works */
+    .mistake-collapsible         { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+    .mistake-collapsible.expanded { grid-template-rows: 1fr; }
+    .mistake-collapsible-inner   { overflow: hidden; }
+    .mistake-collapsible-inner .pause-fields { padding-top: 8px; }
   </style>
 </head>
 <body>
@@ -465,42 +480,67 @@
     <div class="speed-btn" data-speed="fast">Fast</div>
   </div>
 
-  <div class="options-label">Behaviour</div>
-  <div class="option-row">
-    <input type="checkbox" id="natural-pauses" checked>
-    <label for="natural-pauses">
-      Natural pauses
-      <span>Pause periodically to simulate human thinking</span>
+  <div class="option-row" style="margin-top: 8px;">
+    <input type="checkbox" id="var-speed">
+    <label for="var-speed">
+      Variable speed
+      <span>Subtly shifts typing tempo mid-text</span>
     </label>
   </div>
 
-  <div class="pause-fields" id="pause-fields">
-    <div class="pause-row">
-      <div class="pause-row-label">
-        Pause every
-        <span>Typing time between pauses</span>
+  <div class="options-label">Behaviour</div>
+  <div class="option-row expanded" id="natural-pauses-row" style="cursor: pointer;">
+    <input type="checkbox" id="natural-pauses" checked>
+    <label for="natural-pauses" style="pointer-events: none;">
+      Natural pauses
+      <span>Pause periodically to simulate human thinking</span>
+    </label>
+    <span class="chevron">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+  </div>
+
+  <div class="collapsible expanded" id="natural-pauses-collapsible">
+    <div class="collapsible-inner">
+      <div class="pause-fields" id="pause-fields">
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Pause every
+            <span>Typing time between pauses</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="pause-every" value="7" min="1" max="999">
+            <span class="unit">sec</span>
+          </div>
+        </div>
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Pause duration
+            <span>How long each pause lasts</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="pause-duration" value="10" min="1" max="999">
+            <span class="unit">sec</span>
+          </div>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="punct-pauses">
+          <label for="punct-pauses">
+            Punctuation pauses
+            <span>Brief 1–2 s pause every 3–4 punctuation marks</span>
+          </label>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="vary-times">
+          <label for="vary-times">
+            Vary times
+            <span>Shifts each value by ±1–3 s randomly</span>
+          </label>
+        </div>
       </div>
-      <div class="pause-input-wrap">
-        <input type="number" id="pause-every" value="7" min="1" max="999">
-        <span class="unit">sec</span>
-      </div>
-    </div>
-    <div class="pause-row">
-      <div class="pause-row-label">
-        Pause duration
-        <span>How long each pause lasts</span>
-      </div>
-      <div class="pause-input-wrap">
-        <input type="number" id="pause-duration" value="10" min="1" max="999">
-        <span class="unit">sec</span>
-      </div>
-    </div>
-    <div class="vary-row">
-      <input type="checkbox" id="vary-times">
-      <label for="vary-times">
-        Vary times
-        <span>Shifts each value by ±1–3 s randomly</span>
-      </label>
     </div>
   </div>
 

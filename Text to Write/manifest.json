@@ -5,8 +5,10 @@
   "description": "Simulates human typing into any focused input field or textarea.",
   "permissions": [
     "activeTab",
-    "tabs"
+    "tabs",
+    "storage"
   ],
+  "web_accessible_resources": ["timer-worker.js"],
   "sidebar_action": {
     "default_panel": "sidebar.html",
     "default_title": "Text to Write"
