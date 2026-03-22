@@ -11,21 +11,31 @@ let _timers  = new Map();
 let _timerId = 0;
 
 // ---------------------------------------------------------------------------
-// Blur-pause — auto-pauses when the target element loses focus so characters
-// are never typed into nowhere.
+// Blur-pause — auto-pauses when the target element genuinely loses focus.
 //
-// Two listeners are used together:
-//   1. document mousedown (capture) — fires the instant the user clicks
-//      anywhere outside the target, before the browser even moves focus.
-//      This gives an immediate response in complex editors like Google Slides
-//      where the blur event on the element fires late.
-//   2. element blur — catches focus loss from keyboard navigation (Tab key),
-//      clicking the browser address bar, or any non-mouse focus change.
+// contentEditable (Google Docs, Slides canvas, rich editors):
+//   No blur / mousedown / selection event listeners are attached.  Any of those
+//   signals can fire transiently during normal editor activity (spell-check
+//   panel, autocomplete, format toolbar) and — even with a debounce — keeping
+//   typing running while the cursor is displaced scrambles the output.
+//   Auto-pause only triggers from the definitive DOM checks in checkStop()
+//   (element removed from DOM, contenteditable turned off, element hidden).
+//   All other pausing is manual (Pause / Stop button) or cross-frame (below).
+//
+// textarea / input:
+//   mousedown + pointerdown (capture) and element blur are all debounced
+//   through schedulePause() — a 350 ms re-check drops transient signals and
+//   only fires doPause() if focus is still genuinely gone.
+//
+// Cross-frame (Google Slides):
+//   The background-relayed external-mousedown signal remains immediate —
+//   clicking a completely different iframe is always intentional.
 // ---------------------------------------------------------------------------
 let _blurTarget          = null;
 let _mousedownHandler    = null;
 let _pointerdownHandler  = null;
 let _blurFallbackHandler = null;
+let _pauseDebounceTimer  = null;
 
 function doPause() {
   if (!stopTyping && !pausedTyping) {
@@ -34,28 +44,65 @@ function doPause() {
   }
 }
 
+// Schedule a pause after 350 ms, re-checking focus at that point.
+// If the typing loop calls cancelScheduledPause() before the timer fires
+// (because focus was restored), the pause is silently dropped.
+function schedulePause() {
+  if (_pauseDebounceTimer !== null) return; // already pending
+  _pauseDebounceTimer = setTimeout(() => {
+    _pauseDebounceTimer = null;
+    if (!_blurTarget || stopTyping || pausedTyping) return;
+    const el  = _blurTarget;
+    const sel = el.isContentEditable ? window.getSelection() : null;
+    const stillLost =
+      !el.isConnected ||
+      (el.isContentEditable === false) ||
+      (el.offsetParent === null && el.tagName !== "BODY") ||
+      (!el.isContentEditable && document.activeElement !== el) ||
+      (sel !== null && sel.rangeCount === 0) ||
+      (sel !== null && sel.rangeCount > 0 &&
+        !el.contains(sel.getRangeAt(0).commonAncestorContainer));
+    if (stillLost) doPause();
+  }, 350);
+}
+
+function cancelScheduledPause() {
+  if (_pauseDebounceTimer !== null) {
+    clearTimeout(_pauseDebounceTimer);
+    _pauseDebounceTimer = null;
+  }
+}
+
 function attachBlurPause(el) {
   detachBlurPause();
   _blurTarget = el;
 
-  // mousedown + pointerdown (capture): fires the instant the user clicks
-  // anywhere outside the target.  Both events are registered because some
-  // editors (e.g. Google Slides) call stopImmediatePropagation on mousedown
-  // but not on pointerdown, or vice-versa.
-  const outsideClick = (e) => {
-    if (_blurTarget && !_blurTarget.contains(e.target)) doPause();
-  };
-  _mousedownHandler   = outsideClick;
-  _pointerdownHandler = outsideClick;
-  document.addEventListener("mousedown",   _mousedownHandler,   true);
-  document.addEventListener("pointerdown", _pointerdownHandler, true);
+  if (!el.isContentEditable) {
+    // Plain textarea / input: mousedown + blur detection (both debounced).
+    const outsideClick = (e) => {
+      if (_blurTarget && !_blurTarget.contains(e.target)) schedulePause();
+    };
+    _mousedownHandler   = outsideClick;
+    _pointerdownHandler = outsideClick;
+    document.addEventListener("mousedown",   _mousedownHandler,   true);
+    document.addEventListener("pointerdown", _pointerdownHandler, true);
 
-  // Fallback: catches Tab key, address bar clicks, programmatic focus changes
-  _blurFallbackHandler = () => doPause();
-  el.addEventListener("blur", _blurFallbackHandler);
+    _blurFallbackHandler = () => schedulePause();
+    el.addEventListener("blur", _blurFallbackHandler);
+  }
+  // contentEditable: no event listeners at all.
+  // Spell-check panels, autocomplete, format toolbars — any Google Docs UI
+  // activity can fire blur/mousedown and temporarily shift the selection.
+  // Reacting to those events (even with a debounce) keeps typing running while
+  // the cursor is in the wrong place, scrambling the output.
+  // Instead: only the definitive DOM checks in checkStop() trigger auto-pause
+  // (element removed, contenteditable turned off, element hidden).
+  // Everything else is handled by the manual Pause / Stop buttons, or by the
+  // cross-frame external-mousedown signal for Google Slides.
 }
 
 function detachBlurPause() {
+  cancelScheduledPause();
   if (_mousedownHandler)   document.removeEventListener("mousedown",   _mousedownHandler,   true);
   if (_pointerdownHandler) document.removeEventListener("pointerdown", _pointerdownHandler, true);
   if (_blurTarget && _blurFallbackHandler) {
@@ -106,8 +153,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === "resume") {
     pausedTyping = false;
-    // Re-focus the target element so the activeElement check in checkStop()
-    // doesn't immediately re-pause after the user clicks Resume
+    cancelScheduledPause(); // drop any pending auto-pause from before the break
     if (_blurTarget) _blurTarget.focus();
     return false;
   }
@@ -136,6 +182,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   stopTyping   = false;
   pausedTyping = false;
+  cancelScheduledPause();
   _timers.clear(); // discard any stale callbacks from a previous session
   _timerId = 0;
   el.focus();
@@ -332,34 +379,28 @@ function doubleLetter(word) {
 // ---------------------------------------------------------------------------
 
 // Wait while paused; return true if stopped.
-// Three independent signals detect that the target lost focus — whichever
-// fires first wins, covering standard editors, iframes, and Google Slides.
+// For contentEditable: only definitive DOM loss triggers auto-pause (element
+// removed, CE turned off, hidden). No blur/selection checks — those fire
+// during normal Google Docs UI activity (spell-check panel, autocomplete) and
+// would corrupt the output by letting typing continue while the cursor is
+// temporarily displaced.
+// For textarea/input: activeElement departure is also a definitive signal.
 async function checkStop() {
   if (_blurTarget && !pausedTyping && !stopTyping) {
-    const el  = _blurTarget;
-    const sel = el.isContentEditable ? window.getSelection() : null;
+    const el = _blurTarget;
 
-    const lostFocus =
-      // 1. Element removed from the DOM
+    const definiteLoss =
       !el.isConnected ||
-      // 2. Element or an ancestor had contenteditable turned off
       (el.isContentEditable === false) ||
-      // 3. Element is not rendered (display:none / visibility:hidden)
-      el.offsetParent === null && el.tagName !== "BODY" ||
-      // 4. Browser moved activeElement away — reliable for textarea/input, but
-      //    skipped for contentEditable: popups (spelling checker, autocomplete)
-      //    steal activeElement without moving the cursor, causing false pauses.
-      //    Conditions 5 & 6 (selection-based) cover the contentEditable case.
-      (!el.isContentEditable && document.activeElement !== el) ||
-      // 5. Selection was cleared entirely
-      (sel !== null && sel.rangeCount === 0) ||
-      // 6. Selection moved outside the target — stronger than rangeCount alone.
-      //    Even if Slides keeps a selection, it may anchor outside the
-      //    contentEditable when exiting text-edit mode.
-      (sel !== null && sel.rangeCount > 0 &&
-        !el.contains(sel.getRangeAt(0).commonAncestorContainer));
+      (el.offsetParent === null && el.tagName !== "BODY") ||
+      (!el.isContentEditable && document.activeElement !== el);
 
-    if (lostFocus) doPause();
+    if (definiteLoss) {
+      cancelScheduledPause();
+      doPause();
+    } else {
+      cancelScheduledPause();
+    }
   }
   while (pausedTyping) {
     if (stopTyping) return true;
@@ -441,7 +482,21 @@ function typeCharacter(el, char) {
     if (isEmoji) {
       emojiInsert(el, char);
     } else {
-      const keyCode = char.charCodeAt(0);
+      const charCode = char.charCodeAt(0);
+
+      // keyCode must reflect the PHYSICAL key, not the character's Unicode
+      // value.  charCodes 33–46 overlap with navigation keyCodes:
+      //   33=PageUp  34=PageDown  35=End  36=Home
+      //   37=←  38=↑  39=→  40=↓  46=Delete
+      // Sending keydown with keyCode:38 for '&' makes Google Docs treat it as
+      // Up Arrow — moving the cursor before our character lands, scrambling
+      // the entire output.  Only letters (A-Z/a-z) and digits (0-9) have a
+      // safe 1:1 charCode↔keyCode mapping; everything else gets 0 so no
+      // navigation action fires.
+      const keyCode = (charCode >= 48 && charCode <= 57)               ? charCode           // 0–9
+                    : (charCode >= 65 && charCode <= 90)               ? charCode           // A–Z
+                    : (charCode >= 97 && charCode <= 122)              ? charCode - 32      // a–z
+                    : 0;                                                                    // everything else
       const codeStr = `Key${char.toUpperCase()}`;
 
       el.dispatchEvent(new KeyboardEvent("keydown", {
@@ -450,14 +505,10 @@ function typeCharacter(el, char) {
       }));
       el.dispatchEvent(new KeyboardEvent("keypress", {
         key: char, code: codeStr,
-        keyCode, charCode: keyCode, which: keyCode, bubbles: true, cancelable: true,
+        keyCode: charCode, charCode, which: charCode, bubbles: true, cancelable: true,
       }));
 
       if (el.isContentEditable) {
-        // Use direct DOM insertion (not execCommand) so we control exactly when
-        // the `input` event fires.  execCommand('insertText') fires its own
-        // `input` event internally — if we also fire one manually we get two
-        // input events per character, causing editors to double-insert.
         insertIntoContentEditable(el, char);
       } else {
         insertAtCursor(el, char);
