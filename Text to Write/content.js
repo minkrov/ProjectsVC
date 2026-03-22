@@ -176,6 +176,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // ---------------------------------------------------------------------------
 async function typeText(el, text, delay, opts) {
   const tokens = text.match(/[a-zA-Z']+|[^a-zA-Z']+/g) || [];
+  let wordsTyped = 0;
 
   // Natural pause tracking
   let elapsed        = 0;
@@ -194,8 +195,9 @@ async function typeText(el, text, delay, opts) {
   for (const token of tokens) {
     if (await checkStop()) return true;
 
-    const isWord    = /^[a-zA-Z']{3,}$/.test(token);
-    const doMistake = opts.mistakes && isWord && Math.random() < opts.mistakeRate;
+    const isWordToken = /^[a-zA-Z']/.test(token); // for progress counting
+    const isWord      = /^[a-zA-Z']{3,}$/.test(token); // for mistake generation
+    const doMistake   = opts.mistakes && isWord && Math.random() < opts.mistakeRate;
 
     if (doMistake) {
       const misspelled = generateMistake(token);
@@ -229,6 +231,9 @@ async function typeText(el, text, delay, opts) {
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
       }
 
+      wordsTyped++;
+      browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
+
     } else {
       for (const char of token) {
         if (await checkStop()) return true;
@@ -256,6 +261,11 @@ async function typeText(el, text, delay, opts) {
         if (await typeSleep(d)) return true;
         elapsed += d;
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+      }
+
+      if (isWordToken) {
+        wordsTyped++;
+        browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
       }
     }
   }
@@ -336,8 +346,11 @@ async function checkStop() {
       (el.isContentEditable === false) ||
       // 3. Element is not rendered (display:none / visibility:hidden)
       el.offsetParent === null && el.tagName !== "BODY" ||
-      // 4. Browser moved activeElement away (standard editors, textareas)
-      document.activeElement !== el ||
+      // 4. Browser moved activeElement away — reliable for textarea/input, but
+      //    skipped for contentEditable: popups (spelling checker, autocomplete)
+      //    steal activeElement without moving the cursor, causing false pauses.
+      //    Conditions 5 & 6 (selection-based) cover the contentEditable case.
+      (!el.isContentEditable && document.activeElement !== el) ||
       // 5. Selection was cleared entirely
       (sel !== null && sel.rangeCount === 0) ||
       // 6. Selection moved outside the target — stronger than rangeCount alone.
@@ -389,7 +402,10 @@ function typeNewline(el) {
     if (el.isContentEditable) {
       // execCommand is the reliable way to insert a paragraph break in rich
       // editors (Google Docs, Slides, etc.). Falls back to a <br> if unavailable.
-      if (!document.execCommand("insertParagraph")) {
+      // NOTE: execCommand('insertParagraph') fires its own `input` event, so we
+      // only dispatch `input` manually when falling back to DOM manipulation.
+      const paragraphInserted = document.execCommand("insertParagraph");
+      if (!paragraphInserted) {
         const sel = window.getSelection();
         if (sel && sel.rangeCount > 0) {
           const range = sel.getRangeAt(0);
@@ -401,12 +417,12 @@ function typeNewline(el) {
           sel.removeAllRanges();
           sel.addRange(range);
         }
+        el.dispatchEvent(new InputEvent("input", { data: null, inputType: "insertParagraph", bubbles: true, cancelable: false }));
       }
     } else {
       insertAtCursor(el, "\n");
+      el.dispatchEvent(new InputEvent("input", { data: null, inputType: "insertParagraph", bubbles: true, cancelable: false }));
     }
-
-    el.dispatchEvent(new InputEvent("input", { data: null, inputType: "insertParagraph", bubbles: true, cancelable: false }));
     el.dispatchEvent(new KeyboardEvent("keyup",    { key: "Enter", code: "Enter", keyCode: 13, charCode: 0,  which: 13, bubbles: true, cancelable: true }));
     resolve();
   });
@@ -415,33 +431,101 @@ function typeNewline(el) {
 function typeCharacter(el, char) {
   if (char === "\n" || char === "\r") return typeNewline(el);
   return new Promise((resolve) => {
-    const keyCode = char.charCodeAt(0);
+    // Emoji / non-BMP characters (surrogate pairs, char.length > 1) have no
+    // keyboard key.  Real emoji entry via an emoji picker fires ZERO keyboard
+    // events — only an `input` event.  Firing keydown/keypress with made-up
+    // keyCodes causes editors to insert placeholder glyphs or lone surrogates
+    // before our own insertion runs, producing garbage output.
+    const isEmoji = char.length > 1;
 
-    el.dispatchEvent(new KeyboardEvent("keydown", {
-      key: char, code: `Key${char.toUpperCase()}`,
-      keyCode, charCode: 0, which: keyCode, bubbles: true, cancelable: true,
-    }));
-    el.dispatchEvent(new KeyboardEvent("keypress", {
-      key: char, code: `Key${char.toUpperCase()}`,
-      keyCode, charCode: keyCode, which: keyCode, bubbles: true, cancelable: true,
-    }));
-
-    if (el.isContentEditable) {
-      insertIntoContentEditable(el, char);
+    if (isEmoji) {
+      emojiInsert(el, char);
     } else {
-      insertAtCursor(el, char);
-    }
+      const keyCode = char.charCodeAt(0);
+      const codeStr = `Key${char.toUpperCase()}`;
 
-    el.dispatchEvent(new InputEvent("input", {
-      data: char, inputType: "insertText", bubbles: true, cancelable: false,
-    }));
-    el.dispatchEvent(new KeyboardEvent("keyup", {
-      key: char, code: `Key${char.toUpperCase()}`,
-      keyCode, charCode: 0, which: keyCode, bubbles: true, cancelable: true,
-    }));
+      el.dispatchEvent(new KeyboardEvent("keydown", {
+        key: char, code: codeStr,
+        keyCode, charCode: 0, which: keyCode, bubbles: true, cancelable: true,
+      }));
+      el.dispatchEvent(new KeyboardEvent("keypress", {
+        key: char, code: codeStr,
+        keyCode, charCode: keyCode, which: keyCode, bubbles: true, cancelable: true,
+      }));
+
+      if (el.isContentEditable) {
+        // Use direct DOM insertion (not execCommand) so we control exactly when
+        // the `input` event fires.  execCommand('insertText') fires its own
+        // `input` event internally — if we also fire one manually we get two
+        // input events per character, causing editors to double-insert.
+        insertIntoContentEditable(el, char);
+      } else {
+        insertAtCursor(el, char);
+      }
+
+      el.dispatchEvent(new InputEvent("input", {
+        data: char, inputType: "insertText", bubbles: true, cancelable: false,
+      }));
+      el.dispatchEvent(new KeyboardEvent("keyup", {
+        key: char, code: codeStr,
+        keyCode, charCode: 0, which: keyCode, bubbles: true, cancelable: true,
+      }));
+    }
 
     resolve();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Emoji insertion — four cascading strategies, cleanest first
+// ---------------------------------------------------------------------------
+function emojiInsert(el, char) {
+  if (!el.isContentEditable) {
+    // Plain <textarea> / <input>: direct value manipulation always handles
+    // Unicode correctly without any keyboard-event interference.
+    insertAtCursor(el, char);
+    el.dispatchEvent(new InputEvent("input", {
+      data: char, inputType: "insertText", bubbles: true, cancelable: false,
+    }));
+    return;
+  }
+
+  // Strategy 1 — beforeinput
+  // Modern editors (ProseMirror, Slate, Lexical) intercept `beforeinput` with
+  // inputType "insertText" and call preventDefault() once they've handled it
+  // themselves via their own (correct) Unicode-aware insertion path.
+  const bi = new InputEvent("beforeinput", {
+    inputType: "insertText", data: char,
+    bubbles: true, cancelable: true,
+  });
+  el.dispatchEvent(bi);
+  if (bi.defaultPrevented) {
+    // Editor already inserted the emoji — just fire `input` to notify listeners.
+    el.dispatchEvent(new InputEvent("input", {
+      data: char, inputType: "insertText", bubbles: true, cancelable: false,
+    }));
+    return;
+  }
+
+  // Strategy 2 — execCommand('insertHTML')
+  // Takes a different Firefox code path than 'insertText', which avoids the
+  // Firefox bug where insertText only inserts the high UTF-16 surrogate for
+  // non-BMP characters.  The emoji is valid HTML text content, so no escaping
+  // is needed; the browser inserts it as a plain text node via its HTML parser.
+  if (document.execCommand("insertHTML", false, char)) {
+    el.dispatchEvent(new InputEvent("input", {
+      data: char, inputType: "insertText", bubbles: true, cancelable: false,
+    }));
+    return;
+  }
+
+  // Strategy 3 — direct DOM insertion via Selection / Range
+  // No keyboard events are in flight at this point so the selection is clean.
+  // createTextNode correctly stores the full surrogate pair as a DOM text node.
+  insertIntoContentEditable(el, char);
+  el.dispatchEvent(new InputEvent("input", {
+    data: char, inputType: "insertText", bubbles: true, cancelable: false,
+  }));
 }
 
 function insertAtCursor(el, char) {
@@ -450,7 +534,8 @@ function insertAtCursor(el, char) {
   const nativeSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
   const newVal = el.value.slice(0, start) + char + el.value.slice(end);
   if (nativeSetter) nativeSetter.call(el, newVal); else el.value = newVal;
-  el.selectionStart = el.selectionEnd = start + 1;
+  // Use char.length (not 1) so emoji/surrogate-pair chars advance the cursor correctly
+  el.selectionStart = el.selectionEnd = start + char.length;
 }
 
 function insertIntoContentEditable(el, char) {
@@ -496,18 +581,26 @@ function deleteLastCharInput(el) {
   const start = el.selectionStart;
   const end   = el.selectionEnd;
   if (start === 0 && end === 0) return;
+  // Determine delete width: emoji/surrogate pairs are 2 code units; BMP chars are 1
+  const prevChar    = [...el.value.slice(0, start)].slice(-1)[0] || "";
+  const deleteCount = prevChar.length;
   const nativeSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
-  const newVal = el.value.slice(0, start - 1) + el.value.slice(end);
+  const newVal = el.value.slice(0, start - deleteCount) + el.value.slice(end);
   if (nativeSetter) nativeSetter.call(el, newVal); else el.value = newVal;
-  el.selectionStart = el.selectionEnd = start - 1;
+  el.selectionStart = el.selectionEnd = start - deleteCount;
 }
 
 function deleteLastCharContentEditable(el) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return;
-  const range = selection.getRangeAt(0);
-  if (range.startOffset > 0) {
-    range.setStart(range.startContainer, range.startOffset - 1);
+  const range     = selection.getRangeAt(0);
+  const offset    = range.startOffset;
+  if (offset > 0) {
+    // Determine delete width: emoji/surrogate pairs are 2 code units; BMP chars are 1
+    const text        = range.startContainer.textContent || "";
+    const prevChar    = [...text.slice(0, offset)].slice(-1)[0] || "";
+    const deleteCount = prevChar.length;
+    range.setStart(range.startContainer, offset - deleteCount);
     range.deleteContents();
   }
 }

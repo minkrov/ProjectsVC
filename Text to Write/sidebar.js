@@ -1,6 +1,45 @@
 const speedDelays = { slow: 120, medium: 45, fast: 12 };
 let selectedSpeed = "medium";
 
+// ---------------------------------------------------------------------------
+// Progress bar
+// ---------------------------------------------------------------------------
+let _totalWords = 0;
+let _wordsTyped = 0;
+
+function countWords(text) {
+  return (text.match(/[a-zA-Z']+/g) || []).length;
+}
+
+function updateProgress(wordsTyped, total, finished) {
+  const section = document.getElementById("progress-section");
+  const fill    = document.getElementById("progress-bar-fill");
+  const label   = document.getElementById("progress-label");
+  section.classList.add("visible");
+  const pct = total > 0 ? Math.min(100, (wordsTyped / total) * 100) : 0;
+  fill.style.width = pct + "%";
+  if (finished) {
+    fill.classList.add("finished");
+    label.classList.add("finished");
+    label.textContent = `Finished · ${total} word${total !== 1 ? "s" : ""}`;
+  } else {
+    fill.classList.remove("finished");
+    label.classList.remove("finished");
+    label.textContent = `${wordsTyped} / ${total} word${total !== 1 ? "s" : ""}`;
+  }
+}
+
+function resetProgress() {
+  const section = document.getElementById("progress-section");
+  const fill    = document.getElementById("progress-bar-fill");
+  const label   = document.getElementById("progress-label");
+  section.classList.remove("visible");
+  fill.style.width = "0%";
+  fill.classList.remove("finished");
+  label.classList.remove("finished");
+  label.textContent = "";
+}
+
 // Prevent saveSettings() from writing during the startup restore pass
 let isInitializing = true;
 
@@ -83,6 +122,7 @@ document.getElementById("text-input").addEventListener("input", saveSettings);
 // Session state machine  — idle | typing | paused
 // ---------------------------------------------------------------------------
 let sessionState = "idle";
+let _cancelCountdown = null; // set while a countdown is running
 
 const startBtn = document.getElementById("start-btn");
 const stopBtn  = document.getElementById("stop-btn");
@@ -91,22 +131,60 @@ function setSessionState(state) {
   sessionState = state;
   if (state === "idle") {
     startBtn.textContent = "Type it";
-    startBtn.classList.remove("pause-mode");
+    startBtn.classList.remove("pause-mode", "countdown-mode");
     startBtn.disabled = false;
     stopBtn.classList.remove("visible");
+  } else if (state === "countdown") {
+    startBtn.textContent = "3";
+    startBtn.classList.remove("pause-mode");
+    startBtn.classList.add("countdown-mode");
+    startBtn.disabled = true;
+    stopBtn.classList.add("visible");
   } else if (state === "typing") {
     startBtn.textContent = "Pause";
+    startBtn.classList.remove("countdown-mode");
     startBtn.classList.add("pause-mode");
     startBtn.disabled = false;
     stopBtn.classList.add("visible");
   } else if (state === "paused") {
     startBtn.textContent = "Resume";
-    startBtn.classList.remove("pause-mode"); // back to green
+    startBtn.classList.remove("pause-mode", "countdown-mode");
     startBtn.disabled = false;
     stopBtn.classList.add("visible");
   }
-  // Persist so the next sidebar open sees the correct state
-  browser.storage.local.set({ sessionState: state }).catch(() => {});
+  // Persist — treat "countdown" as "idle" so reopening the sidebar mid-countdown
+  // doesn't leave it stuck in an unrecoverable state.
+  browser.storage.local.set({
+    sessionState: state === "countdown" ? "idle" : state,
+  }).catch(() => {});
+}
+
+// Returns a Promise that resolves false when the countdown finishes naturally,
+// or true if the user pressed Stop while it was running.
+function runCountdown() {
+  return new Promise((resolve) => {
+    let count = 3;
+    let timeoutId;
+
+    _cancelCountdown = () => {
+      clearTimeout(timeoutId);
+      _cancelCountdown = null;
+      resolve(true); // cancelled
+    };
+
+    const tick = () => {
+      count--;
+      if (count <= 0) {
+        _cancelCountdown = null;
+        resolve(false); // finished naturally
+        return;
+      }
+      startBtn.textContent = String(count);
+      timeoutId = setTimeout(tick, 1000);
+    };
+
+    timeoutId = setTimeout(tick, 1000);
+  });
 }
 
 // Route a message to the frame that last had focus
@@ -126,6 +204,17 @@ async function beginTyping() {
   const text = document.getElementById("text-input").value;
   if (!text) { setStatus("Enter some text first.", "error"); return; }
 
+  _totalWords = countWords(text);
+  _wordsTyped = 0;
+  resetProgress();
+
+  setSessionState("countdown");
+  setStatus("Starting…");
+
+  const cancelled = await runCountdown();
+  if (cancelled) return; // Stop was pressed during countdown
+
+  updateProgress(0, _totalWords, false);
   setSessionState("typing");
   setStatus("Typing…");
 
@@ -161,7 +250,12 @@ async function beginTyping() {
     if (sessionState !== "idle") {
       setSessionState("idle");
       if (result?.success) {
-        setStatus(result.stopped ? "Stopped." : "Done.", result.stopped ? "" : "success");
+        if (!result.stopped) {
+          updateProgress(_totalWords, _totalWords, true);
+          setStatus("Done.", "success");
+        } else {
+          setStatus("Stopped.");
+        }
       } else {
         setStatus(result?.error || "Something went wrong.", "error");
       }
@@ -191,6 +285,12 @@ async function doResume() {
 }
 
 stopBtn.addEventListener("click", () => {
+  if (sessionState === "countdown" && _cancelCountdown) {
+    _cancelCountdown();
+    setSessionState("idle");
+    setStatus("Stopped.");
+    return;
+  }
   setSessionState("idle");
   setStatus("Stopped.");
   browser.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "stop" } }).catch(() => {});
@@ -198,6 +298,11 @@ stopBtn.addEventListener("click", () => {
 
 // Listen for messages from content scripts and background
 browser.runtime.onMessage.addListener((msg) => {
+  if (msg.action === "typing-progress") {
+    _wordsTyped = msg.wordsTyped;
+    updateProgress(_wordsTyped, _totalWords, false);
+  }
+
   if (msg.action === "targetUpdate") {
     document.getElementById("target-value").textContent = msg.description;
     document.getElementById("target-box").className = "target-box ready";
@@ -218,12 +323,15 @@ browser.runtime.onMessage.addListener((msg) => {
   if (msg.action === "typing-complete") {
     if (sessionState !== "idle") {
       setSessionState("idle");
-      setStatus(
-        msg.error   ? msg.error :
-        msg.stopped ? "Stopped." : "Done.",
-        msg.error   ? "error" :
-        msg.stopped ? "" : "success"
-      );
+      if (!msg.stopped && !msg.error) {
+        updateProgress(_totalWords, _totalWords, true);
+        setStatus("Done.", "success");
+      } else {
+        setStatus(
+          msg.error ? msg.error : "Stopped.",
+          msg.error ? "error" : ""
+        );
+      }
     }
   }
 });

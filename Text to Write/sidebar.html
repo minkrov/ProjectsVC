@@ -131,6 +131,16 @@
       cursor: not-allowed;
     }
 
+    /* Countdown state — amber number on the button, overrides :disabled grey */
+    #start-btn.countdown-mode {
+      background: #f9e2af;
+      color: #1e1e2e;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0;
+      cursor: default;
+    }
+
     /* Pause state — warm red that sits opposite the green */
     #start-btn.pause-mode {
       background: #f38ba8;
@@ -465,6 +475,48 @@
     .mistake-collapsible.expanded { grid-template-rows: 1fr; }
     .mistake-collapsible-inner   { overflow: hidden; }
     .mistake-collapsible-inner .pause-fields { padding-top: 8px; }
+
+    /* Progress bar */
+    #progress-section {
+      margin-top: 10px;
+      display: none;
+    }
+
+    #progress-section.visible {
+      display: block;
+    }
+
+    #progress-bar-track {
+      height: 5px;
+      background: #181825;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #89b4fa;
+      border-radius: 3px;
+      transition: width 0.35s ease, background-color 0.4s ease;
+    }
+
+    #progress-bar-fill.finished {
+      background: #a6e3a1;
+    }
+
+    #progress-label {
+      margin-top: 5px;
+      font-size: 11px;
+      text-align: center;
+      color: #585b70;
+      letter-spacing: 0.02em;
+    }
+
+    #progress-label.finished {
+      color: #a6e3a1;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -590,6 +642,13 @@
     <button id="stop-btn">Stop</button>
   </div>
   <div id="status"></div>
+
+  <div id="progress-section">
+    <div id="progress-bar-track">
+      <div id="progress-bar-fill"></div>
+    </div>
+    <div id="progress-label"></div>
+  </div>
 
   <div class="target-box none" id="target-box">
     <div class="target-label">Target field</div>
