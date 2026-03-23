@@ -10,6 +10,15 @@ const lastFocusedFrame = new Map(); // tabId -> frameId
 let lastFocusedTabId   = null;
 let lastFocusedFrameId = null;
 
+// Pending background timer relay IDs, tracked per tab so they can be
+// cancelled if the page navigates or typing stops before they fire.
+const pendingTimers = new Map(); // tabId -> Set<timeoutId>
+
+function clearPendingTimers(tabId) {
+  const set = pendingTimers.get(tabId);
+  if (set) { set.forEach(clearTimeout); pendingTimers.delete(tabId); }
+}
+
 // Track the frame that is currently running a typing session so that
 // mousedown events from OTHER frames (e.g. Google Slides toolbar or slide
 // panel, which live in a different iframe than the text-box canvas) can be
@@ -36,9 +45,13 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg.action === "timer-request" && sender.tab) {
     const tabId   = sender.tab.id;
     const frameId = sender.frameId;
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
+      const set = pendingTimers.get(tabId);
+      if (set) set.delete(timeoutId);
       browser.tabs.sendMessage(tabId, { action: "timer-fire", id: msg.id }, { frameId }).catch(() => {});
     }, msg.ms);
+    if (!pendingTimers.has(tabId)) pendingTimers.set(tabId, new Set());
+    pendingTimers.get(tabId).add(timeoutId);
     return;
   }
 
@@ -50,6 +63,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return;
   }
   if (msg.action === "typing-stopped") {
+    if (sender.tab) clearPendingTimers(sender.tab.id);
     typingTabId   = null;
     typingFrameId = null;
     return;
@@ -70,6 +84,25 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return;
   }
 
+  // Sidebar on init queries whether typing is actually still running in the
+  // typing frame, so it can correct stale session state after a reopen.
+  if (msg.action === "query-typing-state") {
+    if (typingTabId == null) {
+      return Promise.resolve({ active: false });
+    }
+    return browser.tabs.sendMessage(
+      typingTabId,
+      { action: "get-typing-state" },
+      { frameId: typingFrameId }
+    ).catch(() => {
+      // Content script didn't respond — it likely crashed. Clear the stale
+      // typing frame so external-mousedown relays stop targeting a dead frame.
+      typingTabId   = null;
+      typingFrameId = null;
+      return { active: false };
+    });
+  }
+
   // Relay a control message (pause / resume / stop) directly to the last
   // focused frame — more reliable than the sidebar doing its own tab query.
   if (msg.action === "relay-to-frame") {
@@ -87,4 +120,5 @@ browser.runtime.onMessage.addListener((msg, sender) => {
 // Clean up when a tab is closed
 browser.tabs.onRemoved.addListener((tabId) => {
   lastFocusedFrame.delete(tabId);
+  clearPendingTimers(tabId);
 });

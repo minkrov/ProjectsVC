@@ -8,7 +8,6 @@
     "tabs",
     "storage"
   ],
-  "web_accessible_resources": ["timer-worker.js"],
   "sidebar_action": {
     "default_panel": "sidebar.html",
     "default_title": "Text to Write"
@@ -21,7 +20,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": true

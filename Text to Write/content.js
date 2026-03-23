@@ -1,6 +1,16 @@
 let lastFocusedEl  = null;
 let stopTyping     = false;
 let pausedTyping   = false;
+let isTypingActive = false;
+
+// offsetParent throttle — querying offsetParent forces a layout reflow, so we
+// cache the result and only re-measure every 500 ms instead of every character.
+let _offsetParentCheckedAt = 0;
+let _offsetParentWasNull   = false;
+
+// typing-progress throttle — limits how often progress messages are sent to
+// the sidebar so the message queue doesn't flood on fast/long typing sessions.
+let _lastProgressSent = 0;
 
 // ---------------------------------------------------------------------------
 // Background-relay timer — routes sleeps through the persistent background
@@ -59,9 +69,10 @@ function schedulePause() {
       (el.isContentEditable === false) ||
       (el.offsetParent === null && el.tagName !== "BODY") ||
       (!el.isContentEditable && document.activeElement !== el) ||
-      (sel !== null && sel.rangeCount === 0) ||
-      (sel !== null && sel.rangeCount > 0 &&
-        !el.contains(sel.getRangeAt(0).commonAncestorContainer));
+      (sel !== null && (
+        sel.rangeCount === 0 ||
+        !el.contains(sel.getRangeAt(0).commonAncestorContainer)
+      ));
     if (stillLost) doPause();
   }, 350);
 }
@@ -170,6 +181,12 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  // Sidebar querying whether a typing session is actually running in this frame
+  if (message.action === "get-typing-state") {
+    sendResponse({ active: isTypingActive, paused: pausedTyping });
+    return false;
+  }
+
   if (message.action !== "type") return false;
 
   const active = document.activeElement;
@@ -180,14 +197,23 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (!el) return false;
 
+  // Reject readonly or disabled plain inputs — typing silently fails on these.
+  if (!el.isContentEditable && (el.readOnly || el.disabled)) {
+    sendResponse({ success: false, error: "That field is read-only or disabled." });
+    return true;
+  }
+
   stopTyping   = false;
   pausedTyping = false;
   cancelScheduledPause();
   _timers.clear(); // discard any stale callbacks from a previous session
   _timerId = 0;
+  _offsetParentCheckedAt = 0; // reset offsetParent cache for new session
+  _lastProgressSent      = 0; // reset progress throttle for new session
   el.focus();
   attachBlurPause(el);
   browser.runtime.sendMessage({ action: "typing-started" }).catch(() => {});
+  isTypingActive = true;
 
   const opts = {
     naturalPauses: message.naturalPauses,
@@ -203,12 +229,14 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   typeText(el, message.text, message.delay, opts)
     .then((stopped) => {
+      isTypingActive = false;
       detachBlurPause();
       browser.runtime.sendMessage({ action: "typing-stopped" }).catch(() => {});
       sendResponse({ success: true, stopped });
       browser.runtime.sendMessage({ action: "typing-complete", stopped }).catch(() => {});
     })
     .catch((err) => {
+      isTypingActive = false;
       detachBlurPause();
       browser.runtime.sendMessage({ action: "typing-stopped" }).catch(() => {});
       sendResponse({ success: false, error: err.message });
@@ -279,7 +307,11 @@ async function typeText(el, text, delay, opts) {
       }
 
       wordsTyped++;
-      browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
+      const _now1 = Date.now();
+      if (_now1 - _lastProgressSent >= 300) {
+        _lastProgressSent = _now1;
+        browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
+      }
 
     } else {
       for (const char of token) {
@@ -312,7 +344,11 @@ async function typeText(el, text, delay, opts) {
 
       if (isWordToken) {
         wordsTyped++;
-        browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
+        const _now2 = Date.now();
+        if (_now2 - _lastProgressSent >= 300) {
+          _lastProgressSent = _now2;
+          browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
+        }
       }
     }
   }
@@ -389,10 +425,17 @@ async function checkStop() {
   if (_blurTarget && !pausedTyping && !stopTyping) {
     const el = _blurTarget;
 
+    // offsetParent triggers a layout reflow — throttle to once per 500 ms.
+    const now = Date.now();
+    if (now - _offsetParentCheckedAt >= 500) {
+      _offsetParentWasNull   = (el.offsetParent === null && el.tagName !== "BODY");
+      _offsetParentCheckedAt = now;
+    }
+
     const definiteLoss =
       !el.isConnected ||
       (el.isContentEditable === false) ||
-      (el.offsetParent === null && el.tagName !== "BODY") ||
+      _offsetParentWasNull ||
       (!el.isContentEditable && document.activeElement !== el);
 
     if (definiteLoss) {
@@ -682,8 +725,9 @@ function isTypable(el) {
 
 function applyVariance(ms, vary) {
   if (!vary) return ms;
-  const sign = Math.random() < 0.5 ? 1 : -1;
-  return Math.max(1000, ms + sign * (1 + Math.random() * 2) * 1000);
+  const sign  = Math.random() < 0.5 ? 1 : -1;
+  const delta = (1 + Math.random() * 2) * 1000;
+  return Math.max(Math.round(ms * 0.25), ms + sign * delta);
 }
 
 function randomBetween(min, max) { return Math.random() * (max - min) + min; }

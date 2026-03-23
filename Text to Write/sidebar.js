@@ -109,8 +109,15 @@ function updateMistakePanel() {
   saveSettings();
 }
 
-// Wire up all other inputs so every change is immediately persisted
-document.getElementById("text-input").addEventListener("input", saveSettings);
+// Wire up all other inputs so every change is immediately persisted.
+// The main text box is debounced — pasting or typing a long essay would
+// otherwise trigger a storage write on every single keystroke.
+let _saveTextTimeout = null;
+document.getElementById("text-input").addEventListener("input", () => {
+  if (isInitializing) return;
+  clearTimeout(_saveTextTimeout);
+  _saveTextTimeout = setTimeout(saveSettings, 500);
+});
 ["pause-every", "pause-duration", "mistake-pause", "mistake-rate"].forEach((id) => {
   document.getElementById(id).addEventListener("input", saveSettings);
 });
@@ -202,9 +209,10 @@ startBtn.addEventListener("click", () => {
 
 async function beginTyping() {
   const text = document.getElementById("text-input").value;
-  if (!text) { setStatus("Enter some text first.", "error"); return; }
+  const wordCount = countWords(text);
+  if (!text || wordCount === 0) { setStatus("Enter some text first.", "error"); return; }
 
-  _totalWords = countWords(text);
+  _totalWords = wordCount;
   _wordsTyped = 0;
   resetProgress();
 
@@ -212,7 +220,7 @@ async function beginTyping() {
   setStatus("Starting…");
 
   const cancelled = await runCountdown();
-  if (cancelled) return; // Stop was pressed during countdown
+  if (cancelled || sessionState === "idle") return; // Stop was pressed during countdown
 
   updateProgress(0, _totalWords, false);
   setSessionState("typing");
@@ -289,10 +297,12 @@ stopBtn.addEventListener("click", () => {
     _cancelCountdown();
     setSessionState("idle");
     setStatus("Stopped.");
+    resetProgress();
     return;
   }
   setSessionState("idle");
   setStatus("Stopped.");
+  resetProgress();
   browser.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "stop" } }).catch(() => {});
 });
 
@@ -396,16 +406,31 @@ function setStatus(msg, type = "") {
   if (saved.mistakeRate  !== undefined) document.getElementById("mistake-rate").value  = saved.mistakeRate;
 
   // --- Restore session state (UI only — the content script is already running) ---
-  if (saved.sessionState === "typing") {
-    sessionState = "typing";
-    startBtn.textContent = "Pause";
-    startBtn.classList.add("pause-mode");
-    stopBtn.classList.add("visible");
-  } else if (saved.sessionState === "paused") {
-    sessionState = "paused";
-    startBtn.textContent = "Resume";
-    startBtn.classList.remove("pause-mode");
-    stopBtn.classList.add("visible");
+  // Verify with the content script that typing is actually still active before
+  // restoring a non-idle state. If the session finished while the sidebar was
+  // closed, the stored state will be stale and we must reset to idle.
+  if (saved.sessionState === "typing" || saved.sessionState === "paused") {
+    const liveState = await browser.runtime.sendMessage({ action: "query-typing-state" })
+      .catch(() => ({ active: false }));
+
+    if (liveState.active) {
+      // Content script confirms typing is still running — restore the UI.
+      const state = liveState.paused ? "paused" : saved.sessionState;
+      sessionState = state;
+      if (state === "typing") {
+        startBtn.textContent = "Pause";
+        startBtn.classList.add("pause-mode");
+        stopBtn.classList.add("visible");
+      } else {
+        startBtn.textContent = "Resume";
+        startBtn.classList.remove("pause-mode");
+        stopBtn.classList.add("visible");
+      }
+    } else {
+      // Typing already finished — clear the stale state so next reopen is clean.
+      browser.storage.local.set({ sessionState: "idle", statusMsg: "", statusType: "" }).catch(() => {});
+      saved.statusMsg = ""; // suppress the stale "Typing…" message below
+    }
   }
 
   if (saved.statusMsg) {
