@@ -1,12 +1,13 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Text to Write",
   "version": "1.0.0",
   "description": "Simulates human typing into any focused input field or textarea.",
   "permissions": [
     "activeTab",
     "tabs",
-    "storage"
+    "storage",
+    "sidePanel"
   ],
   "icons": {
     "16": "icon16.png",
@@ -14,39 +15,29 @@
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "sidebar_action": {
-    "default_panel": "sidebar.html",
-    "default_title": "Text to Write",
-    "default_icon": {
-      "16": "icon16.png",
-      "32": "icon32.png",
-      "48": "icon48.png"
-    }
-  },
-  "browser_action": {
+  "action": {
     "default_title": "Open Text to Write",
     "default_icon": {
       "16": "icon16.png",
       "32": "icon32.png",
-      "48": "icon48.png"
+      "48": "icon48.png",
+      "128": "icon128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "sidebar.html"
   },
   "background": {
-    "scripts": ["background.js"]
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "data_collection_permissions": {
-        "required": ["none"]
-      }
-    }
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle",
-      "all_frames": true
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
     }
   ]
 }
