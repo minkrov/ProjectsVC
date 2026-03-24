@@ -55,6 +55,9 @@ final class SessionManager: ObservableObject {
     }
 
     func clearSession() {
+        if let session = currentSession {
+            HistoryManager.shared.record(session: session)
+        }
         currentSession = nil
         silentlyDeleteSessionFile()
     }

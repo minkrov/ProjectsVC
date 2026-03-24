@@ -20,6 +20,15 @@ struct SetupView: View {
     // Duration
     @State private var durationDays: Int = 1
 
+    // Preset groups
+    private let presets: [(name: String, icon: String, domains: [String])] = [
+        ("Social Media", "person.2.fill",  ["x.com", "twitter.com", "instagram.com",
+                                             "tiktok.com", "reddit.com", "youtube.com",
+                                             "facebook.com", "threads.net"]),
+        ("News",         "newspaper.fill", ["bbc.com", "cnn.com", "nytimes.com",
+                                            "theguardian.com", "reuters.com", "apnews.com"]),
+    ]
+
     private var filteredApps: [InstalledApp] {
         appSearchText.isEmpty ? installedApps
             : installedApps.filter { $0.name.localizedCaseInsensitiveContains(appSearchText) }
@@ -87,6 +96,30 @@ struct SetupView: View {
                     // ─ Block Websites ────────────────────────────────────
                     SectionCard(title: "Block Websites", icon: "globe") {
                         VStack(alignment: .leading, spacing: 10) {
+
+                            // Quick-add presets
+                            HStack(spacing: 8) {
+                                ForEach(presets, id: \.name) { preset in
+                                    let active = isPresetActive(preset.domains)
+                                    Button { togglePreset(preset.domains) } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: preset.icon)
+                                                .font(.system(size: 10, weight: .semibold))
+                                            Text(preset.name)
+                                                .font(.system(size: 12, weight: .semibold))
+                                        }
+                                        .foregroundColor(active ? Theme.candlelight : Theme.terracotta)
+                                        .padding(.vertical, 5)
+                                        .padding(.horizontal, 10)
+                                        .background(active ? Theme.terracotta : Theme.terracotta.opacity(0.1))
+                                        .cornerRadius(20)
+                                        .overlay(RoundedRectangle(cornerRadius: 20)
+                                            .stroke(Theme.terracotta.opacity(active ? 0 : 0.3), lineWidth: 1))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
                             HStack {
                                 TextField("e.g. reddit.com, twitter.com", text: $websiteInput)
                                     .textFieldStyle(.plain)
@@ -187,6 +220,20 @@ struct SetupView: View {
     }
 
     // MARK: - Actions
+
+    private func isPresetActive(_ domains: [String]) -> Bool {
+        domains.allSatisfy { blockedWebsites.contains($0) }
+    }
+
+    private func togglePreset(_ domains: [String]) {
+        if isPresetActive(domains) {
+            blockedWebsites.removeAll { domains.contains($0) }
+        } else {
+            for d in domains where !blockedWebsites.contains(d) {
+                blockedWebsites.append(d)
+            }
+        }
+    }
 
     private func addWebsite() {
         var raw = websiteInput

@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 // MARK: - Content View
 // Root router. All navigation lives here so there are no nested sheets.
@@ -7,16 +8,30 @@ struct ContentView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @EnvironmentObject var appWatcher: AppWatcherService
 
-    @State private var showingSetupSheet = false
+    @State private var showingSetupSheet    = false
+    @State private var showSessionEndOverlay = false
 
     var body: some View {
-        Group {
-            if let session = sessionManager.currentSession, session.isActive {
-                ActiveSessionView(session: session) {
-                    handleExpiry()
+        ZStack {
+            Group {
+                if let session = sessionManager.currentSession, session.isActive {
+                    ActiveSessionView(session: session) {
+                        handleExpiry()
+                    }
+                } else {
+                    HomeView(onStart: { showingSetupSheet = true })
                 }
-            } else {
-                HomeView(onStart: { showingSetupSheet = true })
+            }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 640)
+
+            // Session-end overlay — blurs the home screen with a calm message
+            if showSessionEndOverlay {
+                SessionEndOverlayView {
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        showSessionEndOverlay = false
+                    }
+                }
+                .transition(.opacity)
             }
         }
         .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 640)
@@ -42,6 +57,20 @@ struct ContentView: View {
         let agents = LaunchAgentManager()
         agents.installMainAppAgent()
         agents.installWatcherAgent()
+        // Schedule a system notification for when the session ends
+        scheduleEndNotification(for: session)
+    }
+
+    private func scheduleEndNotification(for session: BlockSession) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["focusin.session.end"])
+        let content = UNMutableNotificationContent()
+        content.title = "Focus Session Complete 🎉"
+        content.body  = "Your focus session has ended. Everything is now accessible again."
+        content.sound = .default
+        let comps   = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: session.endTime)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        let request = UNNotificationRequest(identifier: "focusin.session.end", content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request) { _ in }
     }
 
     // MARK: - Session Expiry
@@ -54,10 +83,15 @@ struct ContentView: View {
                 HostsFileManager().unblockDomains()
             }
         }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["focusin.session.end"])
         sessionManager.clearSession()
         let agents = LaunchAgentManager()
         agents.uninstallWatcherAgent()
         agents.uninstallMainAppAgent()
+        // Show the calm session-end overlay on top of the home screen
+        withAnimation(.easeIn(duration: 0.4)) {
+            showSessionEndOverlay = true
+        }
     }
 }
 

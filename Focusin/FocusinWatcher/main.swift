@@ -36,6 +36,15 @@ private func loadSession() -> WatchSession? {
     return try? JSONDecoder().decode(WatchSession.self, from: data)
 }
 
+/// Returns false if the session looks corrupted (end date wildly in the past or future).
+private func isSessionSane(_ s: WatchSession) -> Bool {
+    let now = Date()
+    // Reject sessions that ended more than a minute ago (shouldn't happen but guards
+    // against a stale file) or that claim to end more than 8 days from now (max duration).
+    let maxDuration: TimeInterval = 8 * 24 * 3600
+    return s.endTime > now.addingTimeInterval(-60) && s.endTime < now.addingTimeInterval(maxDuration)
+}
+
 /// Remove our own LaunchAgent plist and exit cleanly.
 /// KeepAlive.SuccessfulExit=false means launchd will NOT restart on exit(0).
 private func shutDown() -> Never {
@@ -82,7 +91,8 @@ private final class AppWatcher: NSObject {
         // ── 2-second poll as a safety net + expiry check ──────────────
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
-            guard let session = loadSession(), session.isActive else {
+            // If session file is missing, unreadable, or expired — shut down cleanly.
+            guard let session = loadSession(), isSessionSane(session), session.isActive else {
                 shutDown()
             }
             self.reload(from: session)
@@ -114,7 +124,8 @@ private final class AppWatcher: NSObject {
         guard
             let bid = app.bundleIdentifier,
             blockedIDs.contains(bid),
-            app.processIdentifier != myPID
+            app.processIdentifier != myPID,
+            !app.isTerminated          // don't call forceTerminate on a zombie
         else { return }
         fputs("[FocusinWatcher] Terminating \(bid)\n", stderr)
         app.forceTerminate()

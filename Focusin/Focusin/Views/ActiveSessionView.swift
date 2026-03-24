@@ -1,22 +1,28 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Active Session View
-// Shown while a block is running. No stop button anywhere.
 
 struct ActiveSessionView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @EnvironmentObject var appWatcher: AppWatcherService
 
-    // Session is passed in but we also watch sessionManager so the list
-    // updates live when the user adds more items mid-session.
     let session: BlockSession
     let onExpire: () -> Void
 
     @State private var timeRemaining: TimeInterval = 0
     @State private var timer: Timer? = nil
     @State private var showAddMore = false
+    @State private var footerMessage: String = ""
 
-    // Use the live session from the manager so additions appear instantly
+    private static let footerMessages = [
+        "There is no early exit. Stay on course.",
+        "The resistance is temporary. The work is permanent.",
+        "Distraction is a choice. So is focus.",
+        "Every hour completed is a promise kept.",
+        "The session ends. Until then, be here.",
+    ]
+
     private var liveSession: BlockSession {
         sessionManager.currentSession ?? session
     }
@@ -43,10 +49,7 @@ struct ActiveSessionView: View {
                             .foregroundColor(Theme.duskSienna)
                     }
                     Spacer()
-                    // ── Add more button ──────────────────────────────────
-                    Button {
-                        showAddMore = true
-                    } label: {
+                    Button { showAddMore = true } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "plus")
                                 .font(.system(size: 11, weight: .bold))
@@ -106,11 +109,7 @@ struct ActiveSessionView: View {
                             )
                         }
                         if !liveSession.blockedApps.isEmpty {
-                            BlockListCard(
-                                title: "Blocked Apps",
-                                icon: "app.badge.fill",
-                                items: liveSession.blockedApps.map(\.name)
-                            )
+                            AppBlockListCard(apps: liveSession.blockedApps)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -122,7 +121,7 @@ struct ActiveSessionView: View {
                     Text("Ends \(formattedEndDate)")
                         .font(.system(size: 11))
                         .foregroundColor(Theme.secondaryText)
-                    Text("There is no early exit. Stay the course.")
+                    Text(footerMessage)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(Theme.sandstone)
                 }
@@ -131,6 +130,7 @@ struct ActiveSessionView: View {
         }
         .onAppear {
             timeRemaining = liveSession.timeRemaining
+            footerMessage = Self.footerMessages.randomElement()!
             startTimer()
         }
         .onDisappear {
@@ -138,9 +138,7 @@ struct ActiveSessionView: View {
         }
         .sheet(isPresented: $showAddMore) {
             AddMoreView(session: liveSession) { newWebsites, newApps in
-                // 1. Persist to session file (watcher picks it up within 2s)
                 sessionManager.addToSession(websites: newWebsites, apps: newApps)
-                // 2. Update in-process watcher immediately
                 if !newApps.isEmpty { appWatcher.addBlocking(apps: newApps) }
                 showAddMore = false
             } onCancel: {
@@ -188,7 +186,7 @@ struct ActiveSessionView: View {
     }
 }
 
-// MARK: - Block List Card
+// MARK: - Website Block List Card (text only)
 
 private struct BlockListCard: View {
     let title: String
@@ -197,18 +195,7 @@ private struct BlockListCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Theme.terracotta)
-                Text(title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Theme.primaryText)
-                Spacer()
-                Text("\(items.count)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Theme.secondaryText)
-            }
+            CardHeader(title: title, icon: icon, count: items.count)
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(items, id: \.self) { item in
                     HStack(spacing: 8) {
@@ -225,5 +212,87 @@ private struct BlockListCard: View {
         .padding(14)
         .cardStyle()
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - App Block List Card (with icons)
+
+private struct AppBlockListCard: View {
+    let apps: [BlockedApp]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            CardHeader(title: "Blocked Apps", icon: "app.badge.fill", count: apps.count)
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(apps) { app in
+                    AppIconRow(app: app)
+                }
+            }
+        }
+        .padding(14)
+        .cardStyle()
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Shared card header
+
+private struct CardHeader: View {
+    let title: String; let icon: String; let count: Int
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Theme.terracotta)
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Theme.primaryText)
+            Spacer()
+            Text("\(count)")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Theme.secondaryText)
+        }
+    }
+}
+
+// MARK: - App Icon Row
+
+private struct AppIconRow: View {
+    let app: BlockedApp
+    @State private var icon: NSImage? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 20, height: 20)
+                } else {
+                    Image(systemName: "app.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.sandstone)
+                        .frame(width: 20, height: 20)
+                }
+            }
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(Theme.sandstone)
+            Text(app.name)
+                .font(.system(size: 13))
+                .foregroundColor(Theme.primaryText)
+        }
+        .task {
+            icon = await resolveIcon(for: app.bundleIdentifier)
+        }
+    }
+
+    private func resolveIcon(for bundleID: String) async -> NSImage? {
+        await Task.detached(priority: .utility) {
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            else { return nil }
+            return NSWorkspace.shared.icon(forFile: url.path)
+        }.value
     }
 }

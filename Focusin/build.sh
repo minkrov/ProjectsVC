@@ -37,6 +37,8 @@ SOURCES=(
   Focusin/ContentView.swift
   Focusin/Theme.swift
   Focusin/Models/BlockSession.swift
+  Focusin/Models/SessionRecord.swift
+  Focusin/Services/HistoryManager.swift
   Focusin/Services/SessionManager.swift
   Focusin/Services/HostsFileManager.swift
   Focusin/Services/AppWatcherService.swift
@@ -47,6 +49,8 @@ SOURCES=(
   Focusin/Views/CommitmentView.swift
   Focusin/Views/ActiveSessionView.swift
   Focusin/Views/AddMoreView.swift
+  Focusin/Views/MenuBarPopoverView.swift
+  Focusin/Views/SessionEndOverlayView.swift
 )
 
 # ── Compile main app ───────────────────────────────────────────────
@@ -60,6 +64,7 @@ swiftc \
   -framework AppKit \
   -framework Foundation \
   -framework Combine \
+  -framework UserNotifications \
   -O \
   "${SOURCES[@]}" \
   -o "$MACOS_DIR/$PRODUCT"

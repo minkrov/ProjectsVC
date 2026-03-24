@@ -5,6 +5,8 @@ import SwiftUI
 struct HomeView: View {
     let onStart: () -> Void
 
+    @State private var history: [SessionRecord] = []
+
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
@@ -48,6 +50,45 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 40)
 
+                // ── Session history ───────────────────────────────────────
+                if !history.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Theme.sandstone)
+                            Text("Recent sessions")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Theme.sandstone)
+                        }
+                        .padding(.horizontal, 4)
+
+                        VStack(spacing: 4) {
+                            ForEach(history.prefix(5)) { record in
+                                HStack(spacing: 0) {
+                                    Text(record.formattedDate)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Theme.primaryText)
+                                    Spacer()
+                                    Text(record.formattedDuration)
+                                        .font(.system(size: 12, weight: .semibold).monospaced())
+                                        .foregroundColor(Theme.terracotta)
+                                        .padding(.trailing, 10)
+                                    Text(record.summary)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(Theme.secondaryText)
+                                }
+                                .padding(.vertical, 7)
+                                .padding(.horizontal, 12)
+                                .background(Theme.sandWall.opacity(0.6))
+                                .cornerRadius(8)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 40)
+                    .padding(.top, 24)
+                }
+
                 Spacer()
 
                 // ── Start button ─────────────────────────────────────────
@@ -56,6 +97,7 @@ struct HomeView: View {
                     .padding(.bottom, 48)
             }
         }
+        .onAppear { history = HistoryManager.shared.load() }
     }
 }
 
