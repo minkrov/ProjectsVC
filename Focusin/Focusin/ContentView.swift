@@ -12,9 +12,16 @@ struct ContentView: View {
     @State private var showSessionEndOverlay = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Group {
-                if let session = sessionManager.currentSession, session.isActive {
+                if showingSetupSheet {
+                    SetupCoordinator { session in
+                        activateSession(session)
+                        showingSetupSheet = false
+                    } onCancel: {
+                        showingSetupSheet = false
+                    }
+                } else if let session = sessionManager.currentSession, session.isActive {
                     ActiveSessionView(session: session) {
                         handleExpiry()
                     }
@@ -22,7 +29,7 @@ struct ContentView: View {
                     HomeView(onStart: { showingSetupSheet = true })
                 }
             }
-            .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 640)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Session-end overlay — blurs the home screen with a calm message
             if showSessionEndOverlay {
@@ -34,16 +41,20 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
-        .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 640)
-        // Single sheet — coordinator handles the multi-step flow inside
-        .sheet(isPresented: $showingSetupSheet) {
-            SetupCoordinator { session in
-                activateSession(session)
-                showingSetupSheet = false
-            } onCancel: {
-                showingSetupSheet = false
+        .frame(minWidth: 480, idealWidth: 520, maxWidth: .infinity,
+               minHeight: 560, idealHeight: 640, maxHeight: .infinity,
+               alignment: .top)
+        .onAppear {
+            // Catch expiry that happened while the app was closed (flag set during loadSession)
+            if sessionManager.sessionJustEnded {
+                sessionManager.sessionJustEnded = false
+                withAnimation(.easeIn(duration: 0.4)) { showSessionEndOverlay = true }
             }
-            .frame(width: 520, height: 660)
+        }
+        .onChange(of: sessionManager.sessionJustEnded) { ended in
+            guard ended else { return }
+            sessionManager.sessionJustEnded = false
+            withAnimation(.easeIn(duration: 0.4)) { showSessionEndOverlay = true }
         }
     }
 
@@ -109,11 +120,8 @@ private struct SetupCoordinator: View {
     enum Step { case setup, commitment }
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
-
-            switch step {
-            case .setup:
+        ZStack(alignment: .top) {
+            if step == .setup {
                 SetupView(
                     onNext: { ps in
                         pending = ps
@@ -121,28 +129,29 @@ private struct SetupCoordinator: View {
                     },
                     onCancel: onCancel
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.asymmetric(
                     insertion: .move(edge: .leading),
                     removal: .move(edge: .leading)
                 ))
-
-            case .commitment:
-                if let ps = pending {
-                    CommitmentView(
-                        pending: ps,
-                        onBack: {
-                            withAnimation(.easeInOut(duration: 0.25)) { step = .setup }
-                        },
-                        onConfirm: { session in
-                            onConfirm(session)
-                        }
-                    )
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .trailing)
-                    ))
-                }
+            } else if let ps = pending {
+                CommitmentView(
+                    pending: ps,
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.25)) { step = .setup }
+                    },
+                    onConfirm: { session in
+                        onConfirm(session)
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing),
+                    removal: .move(edge: .trailing)
+                ))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Theme.background.ignoresSafeArea())
     }
 }

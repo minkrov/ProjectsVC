@@ -60,7 +60,7 @@ struct AddMoreView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(!canAdd || isAdding)
-                .opacity(canAdd ? 1 : 0.4)
+                .opacity(canAdd && !isAdding ? 1 : 0.4)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)

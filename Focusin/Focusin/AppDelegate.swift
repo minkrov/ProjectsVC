@@ -286,6 +286,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let session = sessionManager.currentSession else {
             sessionManager.clearSession()
             exitBackgroundMode()
+            sessionManager.sessionJustEnded = true
+            showMainWindow()
             return
         }
 
@@ -307,8 +309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Cancel any scheduled notification (we'll deliver it immediately instead)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["focusin.session.end"])
 
-        exitBackgroundMode()
-
         // Deliver an immediate system notification so the user is informed
         // even if they switched to another Space or the window is hidden.
         let content = UNMutableNotificationContent()
@@ -319,14 +319,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                         content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req) { _ in }
 
-        // Also show an in-app alert once the window is front
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let alert = NSAlert()
-            alert.messageText = "Focus Session Complete"
-            alert.informativeText = "Your focus session has ended. Everything is now accessible again."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "Great!")
-            alert.runModal()
-        }
+        // Remove the status bar icon and restore normal dock presence.
+        exitBackgroundMode()
+
+        // Signal ContentView to show the session-end overlay, then bring the window front.
+        sessionManager.sessionJustEnded = true
+        showMainWindow()
     }
 }

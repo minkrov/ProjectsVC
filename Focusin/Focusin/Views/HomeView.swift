@@ -38,7 +38,7 @@ struct HomeView: View {
 
                 // ── Feature cards ────────────────────────────────────────
                 VStack(spacing: 12) {
-                    FeatureRow(icon: "globe.slash",
+                    FeatureRow(icon: "globe",
                                title: "Website blocking",
                                detail: "Edits your system hosts file — works in every browser.")
                     FeatureRow(icon: "xmark.app.fill",
@@ -108,11 +108,14 @@ private struct FeatureRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Theme.terracotta)
-                .frame(width: 24)
-                .padding(.top, 1)
+            ZStack {
+                Image(systemName: icon)
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Theme.terracotta)
+            }
+            .frame(width: 24, height: 24)
+            .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))

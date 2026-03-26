@@ -5,6 +5,9 @@ import Combine
 
 final class SessionManager: ObservableObject {
     @Published var currentSession: BlockSession?
+    /// Set to true when a session ends (either on relaunch after expiry or in-background expiry).
+    /// ContentView observes this to show the session-end overlay.
+    @Published var sessionJustEnded = false
 
     private let sessionFileURL: URL
 
@@ -29,7 +32,8 @@ final class SessionManager: ObservableObject {
         if session.isActive {
             currentSession = session
         } else {
-            // Expired – clean up quietly
+            // Expired while app was closed — signal ContentView to show the completion overlay.
+            sessionJustEnded = true
             currentSession = nil
             silentlyDeleteSessionFile()
         }

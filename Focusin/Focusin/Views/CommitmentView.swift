@@ -32,7 +32,7 @@ struct CommitmentView: View {
                 Color.clear.frame(width: 72)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.vertical, 8)
             .background(Theme.candlelight)
             .overlay(Divider().foregroundColor(Theme.border), alignment: .bottom)
 
@@ -137,6 +137,7 @@ struct CommitmentView: View {
                 }
                 .padding(20)
             }
+            .frame(maxHeight: .infinity)
             .background(Theme.background)
         }
         .background(Theme.background)

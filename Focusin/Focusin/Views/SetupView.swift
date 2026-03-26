@@ -325,6 +325,7 @@ private struct AppRow: View {
             .padding(.horizontal, 8)
             .background(isSelected ? Theme.terracotta.opacity(0.08) : Color.clear)
             .cornerRadius(6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
