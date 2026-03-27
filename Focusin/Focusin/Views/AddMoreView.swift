@@ -294,6 +294,7 @@ private struct AddAppRow: View {
             .padding(.vertical, 5).padding(.horizontal, 8)
             .background(isSelected ? Theme.terracotta.opacity(0.08) : Color.clear)
             .cornerRadius(6)
+            .contentShape(Rectangle())
             .opacity(isAlreadyBlocked ? 0.5 : 1)
         }
         .buttonStyle(.plain)

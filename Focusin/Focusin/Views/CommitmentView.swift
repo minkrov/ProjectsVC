@@ -152,7 +152,7 @@ struct CommitmentView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             var hostsOK = true
             if !pending.blockedWebsites.isEmpty {
-                hostsOK = HostsFileManager().blockDomains(pending.blockedWebsites)
+                hostsOK = HostsFileManager().blockDomains(pending.blockedWebsites, replacing: true)
             }
 
             DispatchQueue.main.async {
@@ -167,7 +167,8 @@ struct CommitmentView: View {
                     startTime: Date(),
                     endTime: pending.endTime,
                     blockedWebsites: pending.blockedWebsites,
-                    blockedApps: pending.blockedApps
+                    blockedApps: pending.blockedApps,
+                    pomodoroEnabled: pending.pomodoroEnabled
                 )
                 onConfirm(session)
             }
@@ -216,9 +217,13 @@ struct CommitmentView: View {
 
     private var durationDescription: String {
         let secs = pending.endTime.timeIntervalSince(Date())
-        let days = Int(secs / 86400)
-        let hours = Int(secs.truncatingRemainder(dividingBy: 86400) / 3600)
-        if hours > 0 { return "\(days)d \(hours)h" }
-        return "\(days) day\(days == 1 ? "" : "s")"
+        let days    = Int(secs / 86400)
+        let hours   = Int(secs.truncatingRemainder(dividingBy: 86400) / 3600)
+        let minutes = Int(secs.truncatingRemainder(dividingBy: 3600) / 60)
+        if days > 0 && hours > 0 { return "\(days)d \(hours)h" }
+        if days > 0              { return "\(days) day\(days == 1 ? "" : "s")" }
+        if hours > 0 && minutes > 0 { return "\(hours)h \(minutes)m" }
+        if hours > 0             { return "\(hours) hour\(hours == 1 ? "" : "s")" }
+        return "\(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 }

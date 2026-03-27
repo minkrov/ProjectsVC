@@ -91,3 +91,76 @@ struct GhostButtonStyle: ButtonStyle {
 extension View {
     func cardStyle() -> some View { modifier(CardStyle()) }
 }
+
+// MARK: - Pomodoro Toggle Button
+// Shared between SetupView and ActiveSessionView.
+// Looks "pressed in" when active; springs back when toggled off.
+
+struct PomodoroToggleButton: View {
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+
+                // Icon circle
+                ZStack {
+                    Circle()
+                        .fill(isOn ? Theme.terracotta : Theme.sandstone.opacity(0.18))
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "timer")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(isOn ? Theme.candlelight : Theme.sandstone)
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 0) {
+                        Text("Pomodoro Mode")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(isOn ? Theme.duskSienna : Theme.primaryText)
+                        Spacer()
+                        // Toggle pill
+                        Capsule()
+                            .fill(isOn ? Theme.terracotta : Theme.sandstone.opacity(0.28))
+                            .frame(width: 36, height: 20)
+                            .overlay(
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 15, height: 15)
+                                    .offset(x: isOn ? 8 : -8)
+                                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isOn)
+                                    .shadow(color: .black.opacity(0.12), radius: 1, x: 0, y: 1)
+                            )
+                    }
+                    Text("25 min focus · 5 min break, cycling. Toggle off at any time to stop and reset the cycle.")
+                        .font(.system(size: 11))
+                        .foregroundColor(isOn ? Theme.terracotta.opacity(0.75) : Theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(12)
+            .background(isOn ? Theme.terracotta.opacity(0.10) : Theme.candlelight)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isOn ? Theme.terracotta.opacity(0.45) : Theme.border, lineWidth: 1)
+            )
+            .scaleEffect(isOn ? 0.98 : 1.0)
+        }
+        .buttonStyle(PomodoroButtonPressStyle(isOn: isOn))
+    }
+}
+
+private struct PomodoroButtonPressStyle: ButtonStyle {
+    let isOn: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed
+                ? (isOn ? 0.955 : 0.965)
+                : 1.0)
+            .animation(.spring(response: 0.18, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}

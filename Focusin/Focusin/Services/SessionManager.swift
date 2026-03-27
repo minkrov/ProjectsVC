@@ -46,6 +46,13 @@ final class SessionManager: ObservableObject {
         }
     }
 
+    func setPomodoroEnabled(_ enabled: Bool) {
+        guard var session = currentSession else { return }
+        session.pomodoroEnabled   = enabled
+        session.pomodoroStartTime = enabled ? Date() : nil
+        saveSession(session)
+    }
+
     func addToSession(websites: [String], apps: [BlockedApp]) {
         guard var session = currentSession else { return }
 

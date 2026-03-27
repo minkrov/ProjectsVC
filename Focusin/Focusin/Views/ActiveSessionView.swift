@@ -15,6 +15,14 @@ struct ActiveSessionView: View {
     @State private var showAddMore = false
     @State private var footerMessage: String = ""
 
+    // Pomodoro — driven by the main timer, not a separate Timer
+    @State private var pomodoroOn: Bool = false
+    @State private var pomodoroBreak: Bool = false        // false = focus, true = break
+    @State private var pomodoroSecondsLeft: Int = 25 * 60
+
+    private let pomodoroFocusSecs = 25 * 60
+    private let pomodoroBreakSecs =  5 * 60
+
     private static let footerMessages = [
         "There is no early exit. Stay on course.",
         "The resistance is temporary. The work is permanent.",
@@ -70,8 +78,60 @@ struct ActiveSessionView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 16)
 
+                // ── Pomodoro toggle ───────────────────────────────────────
+                PomodoroToggleButton(isOn: pomodoroOn) {
+                    let turningOn = !pomodoroOn
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.65)) {
+                        pomodoroOn = turningOn
+                    }
+                    if turningOn {
+                        sessionManager.setPomodoroEnabled(true)
+                        startPomodoro()
+                    } else {
+                        sessionManager.setPomodoroEnabled(false)
+                        stopPomodoro()
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 4)
+
                 // ── Countdown ────────────────────────────────────────────
                 VStack(spacing: 8) {
+
+                    // Pomodoro mini-timer (slides in when active)
+                    if pomodoroOn {
+                        VStack(spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: pomodoroBreak ? "cup.and.heat.waves.fill" : "flame.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(pomodoroBreak ? Theme.sandstone : Theme.terracotta)
+                                Text(pomodoroBreak ? "BREAK" : "FOCUS")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(pomodoroBreak ? Theme.sandstone : Theme.terracotta)
+                                    .tracking(1.5)
+                                Text(formattedPomodoroTime)
+                                    .font(Theme.monoFont(24, weight: .bold))
+                                    .foregroundColor(pomodoroBreak ? Theme.sandstone : Theme.terracotta)
+                                    .id("pomodoro-\(pomodoroBreak)")
+                                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                            }
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Theme.sandstone.opacity(0.2))
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(pomodoroBreak ? Theme.sandstone : Theme.terracotta)
+                                        .frame(width: geo.size.width * pomodoroProgressFraction)
+                                        .animation(.linear(duration: 1), value: pomodoroProgressFraction)
+                                }
+                            }
+                            .frame(height: 3)
+                            .padding(.horizontal, 50)
+                        }
+                        .padding(.bottom, 8)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     Text(formattedTime)
                         .font(Theme.monoFont(46, weight: .bold))
                         .foregroundColor(Theme.terracotta)
@@ -97,6 +157,7 @@ struct ActiveSessionView: View {
                     .padding(.top, 4)
                 }
                 .padding(.vertical, 24)
+                .animation(.spring(response: 0.35, dampingFraction: 0.75), value: pomodoroOn)
 
                 // ── Blocked items ─────────────────────────────────────────
                 ScrollView {
@@ -132,6 +193,7 @@ struct ActiveSessionView: View {
             timeRemaining = liveSession.timeRemaining
             footerMessage = Self.footerMessages.randomElement()!
             startTimer()
+            restorePomodoro()
         }
         .onDisappear {
             timer?.invalidate()
@@ -148,7 +210,38 @@ struct ActiveSessionView: View {
         }
     }
 
-    // MARK: - Timer
+    // MARK: - Pomodoro (state only — the main timer drives the tick)
+
+    /// Reconstructs phase and remaining time from the persisted start timestamp.
+    /// Safe to call freely — just sets state, main timer picks it up automatically.
+    private func restorePomodoro() {
+        let s = liveSession
+        guard s.pomodoroEnabled, let startTime = s.pomodoroStartTime else { return }
+        let cycleLength = pomodoroFocusSecs + pomodoroBreakSecs
+        let posInCycle  = Int(Date().timeIntervalSince(startTime)) % cycleLength
+        if posInCycle < pomodoroFocusSecs {
+            pomodoroBreak       = false
+            pomodoroSecondsLeft = pomodoroFocusSecs - posInCycle
+        } else {
+            pomodoroBreak       = true
+            pomodoroSecondsLeft = cycleLength - posInCycle
+        }
+        pomodoroOn = true   // main timer starts ticking Pomodoro on next fire
+    }
+
+    /// Fresh start — resets to focus phase. Main timer drives the countdown.
+    private func startPomodoro() {
+        pomodoroBreak       = false
+        pomodoroSecondsLeft = pomodoroFocusSecs
+    }
+
+    /// Stops Pomodoro and resets to 25:00 focus. Main timer stops ticking it (pomodoroOn = false).
+    private func stopPomodoro() {
+        pomodoroBreak       = false
+        pomodoroSecondsLeft = pomodoroFocusSecs
+    }
+
+    // MARK: - Main Timer (also drives Pomodoro so both counters tick simultaneously)
 
     private func startTimer() {
         timer?.invalidate()
@@ -158,6 +251,17 @@ struct ActiveSessionView: View {
             if remaining <= 0 {
                 timer?.invalidate()
                 onExpire()
+                return
+            }
+            // Pomodoro ticks here — same callback = perfectly in sync
+            guard pomodoroOn else { return }
+            if pomodoroSecondsLeft > 0 {
+                pomodoroSecondsLeft -= 1
+            } else {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                    pomodoroBreak.toggle()
+                }
+                pomodoroSecondsLeft = pomodoroBreak ? pomodoroBreakSecs : pomodoroFocusSecs
             }
         }
     }
@@ -180,9 +284,23 @@ struct ActiveSessionView: View {
         return min(1, max(0, timeRemaining / total))
     }
 
+    private static let endDateFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short; return f
+    }()
+
     private var formattedEndDate: String {
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
-        return f.string(from: liveSession.endTime)
+        Self.endDateFormatter.string(from: liveSession.endTime)
+    }
+
+    private var formattedPomodoroTime: String {
+        let m = pomodoroSecondsLeft / 60
+        let s = pomodoroSecondsLeft % 60
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    private var pomodoroProgressFraction: Double {
+        let total = Double(pomodoroBreak ? pomodoroBreakSecs : pomodoroFocusSecs)
+        return Double(pomodoroSecondsLeft) / total
     }
 }
 

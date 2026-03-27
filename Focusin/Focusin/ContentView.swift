@@ -99,6 +99,17 @@ struct ContentView: View {
         let agents = LaunchAgentManager()
         agents.uninstallWatcherAgent()
         agents.uninstallMainAppAgent()
+
+        // Deliver an immediate notification so the user is informed even if the
+        // window is hidden or they're in another Space.
+        let content = UNMutableNotificationContent()
+        content.title = "Focus Session Complete 🎉"
+        content.body  = "Your focus session has ended. Everything is now accessible again."
+        content.sound = .default
+        let req = UNNotificationRequest(identifier: "focusin.session.end.now",
+                                        content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req) { _ in }
+
         // Show the calm session-end overlay on top of the home screen
         withAnimation(.easeIn(duration: 0.4)) {
             showSessionEndOverlay = true

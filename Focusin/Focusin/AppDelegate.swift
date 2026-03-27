@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusBarTimer: Timer?
     private var expiryTimer: Timer?
     private var popover: NSPopover?
+    private var hasCleanedUpSession = false
     // Strong reference — prevents SwiftUI from deallocating the window when red X is pressed
     private var mainWindowController: NSWindowController?
 
@@ -43,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Restore an active session that survived a relaunch / login
         if let session = sessionManager.currentSession, session.isActive {
+            hasCleanedUpSession = false   // reset so cleanup works when this session ends
             // In-process watcher for while this app is in the foreground
             appWatcher.start(blocking: session.blockedApps)
             // Ensure the persistent watcher LaunchAgent is still installed
@@ -51,9 +53,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             enterBackgroundMode(session: session)
             scheduleExpiryTimer(for: session)
             scheduleEndNotification(for: session)
-        } else if sessionManager.currentSession != nil {
-            // Session was saved but has now expired
-            cleanUpExpiredSession()
+        } else {
+            // No active session — but the hosts file may still be blocked if the
+            // background watcher shut down without cleaning up (e.g. app was closed
+            // when the session expired). Unblock silently as a safety net.
+            DispatchQueue.global(qos: .userInitiated).async {
+                if HostsFileManager().hostsAreBlocked() {
+                    HostsFileManager().unblockDomains()
+                }
+            }
+            // If session.json existed but was already expired, loadSession() already
+            // cleared currentSession — surface the end-of-session overlay via the
+            // sessionJustEnded flag that loadSession() set.
         }
     }
 
@@ -124,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func setupStatusBar(session: BlockSession) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem?.button?.image         = makeCrossIcon()
+        statusItem?.button?.image         = makeFlameIcon()
         statusItem?.button?.imagePosition = .imageLeft
         updateStatusBarLabel(session: session)
 
@@ -176,52 +187,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let days    = remaining / 86400
         let hours   = (remaining % 86400) / 3600
         let minutes = (remaining % 3600) / 60
+        let seconds = remaining % 60
         let label: String
         if days > 0 {
             label = " \(days)d \(hours)h"
         } else if hours > 0 {
             label = " \(hours)h \(minutes)m"
-        } else {
+        } else if minutes > 0 {
             label = " \(minutes)m"
+        } else {
+            label = " \(seconds)s"
         }
         statusItem?.button?.title = label
     }
 
-    // MARK: - Cross icon for status bar
+    // MARK: - Flame icon for status bar
 
-    private func makeCrossIcon() -> NSImage {
-        let img = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            let s  = rect.width
-            // Same proportions as the app icon cross
-            let cw = s * 0.55
-            let ch = s * 0.74
-            let tw = cw * 0.34
-            let cx = (s - cw) / 2
-            let cy = (s - ch) / 2
-            let vx = cx + (cw - tw) / 2
-
-            let hMid    = cy + ch * 0.695
-            let hBarTop = hMid + tw / 2
-            let hBarBot = hMid - tw / 2
-
-            let path = NSBezierPath()
-            path.move(to:   NSPoint(x: vx,      y: cy + ch))
-            path.line(to:   NSPoint(x: vx + tw, y: cy + ch))
-            path.line(to:   NSPoint(x: vx + tw, y: hBarTop))
-            path.line(to:   NSPoint(x: cx + cw, y: hBarTop))
-            path.line(to:   NSPoint(x: cx + cw, y: hBarBot))
-            path.line(to:   NSPoint(x: vx + tw, y: hBarBot))
-            path.line(to:   NSPoint(x: vx + tw, y: cy))
-            path.line(to:   NSPoint(x: vx,      y: cy))
-            path.line(to:   NSPoint(x: vx,      y: hBarBot))
-            path.line(to:   NSPoint(x: cx,       y: hBarBot))
-            path.line(to:   NSPoint(x: cx,       y: hBarTop))
-            path.line(to:   NSPoint(x: vx,      y: hBarTop))
-            path.close()
-
-            NSColor.black.setFill()
-            path.fill()
-            return true
+    private func makeFlameIcon() -> NSImage {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        guard let img = NSImage(systemSymbolName: "flame.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(cfg) else {
+            // Fallback: empty image
+            return NSImage(size: NSSize(width: 14, height: 14), flipped: false) { _ in true }
         }
         img.isTemplate = true   // auto-adapts to light / dark menu bar
         return img
@@ -283,11 +270,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Clean Up
 
     func cleanUpExpiredSession() {
+        guard !hasCleanedUpSession else { return }
+        hasCleanedUpSession = true
+
         guard let session = sessionManager.currentSession else {
-            sessionManager.clearSession()
-            exitBackgroundMode()
-            sessionManager.sessionJustEnded = true
-            showMainWindow()
+            // Session already gone (double-fire guard) — nothing left to do
             return
         }
 

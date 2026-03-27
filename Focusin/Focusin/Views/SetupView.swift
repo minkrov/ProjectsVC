@@ -19,6 +19,7 @@ struct SetupView: View {
 
     // Duration
     @State private var durationDays: Int = 1
+    @State private var pomodoroEnabled: Bool = false
 
     // Preset groups
     private let presets: [(name: String, icon: String, domains: [String])] = [
@@ -76,6 +77,7 @@ struct SetupView: View {
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 8)
                                             .background(durationDays == day ? Theme.terracotta : Color.clear)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
                                     if day < 7 {
@@ -90,6 +92,12 @@ struct SetupView: View {
                             Text("Block ends \(formattedEndDate)")
                                 .font(.system(size: 12))
                                 .foregroundColor(Theme.secondaryText)
+
+                            PomodoroToggleButton(isOn: pomodoroEnabled) {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.65)) {
+                                    pomodoroEnabled.toggle()
+                                }
+                            }
                         }
                     }
 
@@ -256,7 +264,8 @@ struct SetupView: View {
             .filter { selectedBundleIDs.contains($0.bundleIdentifier) }
             .map { BlockedApp(name: $0.name, bundleIdentifier: $0.bundleIdentifier) }
         let end = Calendar.current.date(byAdding: .day, value: durationDays, to: Date())!
-        onNext(PendingSession(blockedWebsites: blockedWebsites, blockedApps: apps, endTime: end))
+        onNext(PendingSession(blockedWebsites: blockedWebsites, blockedApps: apps,
+                              endTime: end, pomodoroEnabled: pomodoroEnabled))
     }
 
     private var formattedEndDate: String {
@@ -366,4 +375,5 @@ struct PendingSession {
     var blockedWebsites: [String]
     var blockedApps: [BlockedApp]
     var endTime: Date
+    var pomodoroEnabled: Bool = false
 }

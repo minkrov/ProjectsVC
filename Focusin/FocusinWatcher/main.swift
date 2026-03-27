@@ -49,6 +49,20 @@ private func isSessionSane(_ s: WatchSession) -> Bool {
 /// KeepAlive.SuccessfulExit=false means launchd will NOT restart on exit(0).
 private func shutDown() -> Never {
     fputs("[FocusinWatcher] Session ended — shutting down.\n", stderr)
+
+    // Unblock websites: remove Focusin's block from /etc/hosts.
+    // This runs with administrator privileges (same as when blocking began).
+    let unblockCmd = #"sed -i '' '/===FOCUSIN_BLOCK_START===/,/===FOCUSIN_BLOCK_END===/d' /etc/hosts && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"#
+    let escaped = unblockCmd
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    let src = "do shell script \"\(escaped)\" with administrator privileges"
+    if let script = NSAppleScript(source: src) {
+        var err: NSDictionary?
+        script.executeAndReturnError(&err)
+        if let e = err { fputs("[FocusinWatcher] Unblock error: \(e)\n", stderr) }
+    }
+
     try? FileManager.default.removeItem(at: watcherPlistURL)
     let t = Process()
     t.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -145,7 +159,20 @@ let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
 
 guard let initial = loadSession(), initial.isActive else {
-    fputs("[FocusinWatcher] No active session — removing LaunchAgent.\n", stderr)
+    fputs("[FocusinWatcher] No active session — cleaning up and removing LaunchAgent.\n", stderr)
+    // If a session file existed but was already expired, unblock hosts before exiting.
+    // This covers the case where the watcher was restarted after session expiry.
+    let hostsContent = (try? String(contentsOfFile: "/etc/hosts", encoding: .utf8)) ?? ""
+    if hostsContent.contains("===FOCUSIN_BLOCK_START===") {
+        let cmd = #"sed -i '' '/===FOCUSIN_BLOCK_START===/,/===FOCUSIN_BLOCK_END===/d' /etc/hosts && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"#
+        let escaped = cmd
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        if let script = NSAppleScript(source: "do shell script \"\(escaped)\" with administrator privileges") {
+            var err: NSDictionary?
+            script.executeAndReturnError(&err)
+        }
+    }
     try? FileManager.default.removeItem(at: watcherPlistURL)
     exit(0)
 }

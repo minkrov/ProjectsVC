@@ -1,11 +1,10 @@
 #!/usr/bin/env swift
 // Focusin icon generator
-// Draws a cross on a warm sienna background using the Golden Adobe palette.
+// Uses the SF Symbol flame.fill (same as the app homepage) on a warm sienna background.
 // Run: swift generate_icon.swift <output_iconset_dir>
 
 import Foundation
-import CoreGraphics
-import ImageIO
+import AppKit
 
 // MARK: - Palette (Golden Adobe)
 func c(_ hex: UInt32, a: CGFloat = 1) -> CGColor {
@@ -15,12 +14,30 @@ func c(_ hex: UInt32, a: CGFloat = 1) -> CGColor {
             alpha: a)
 }
 
-let bgCenter   = c(0x7B3B1C)   // warm terracotta — gradient centre
-let bgEdge     = c(0x4E1E0A)   // deep sienna — gradient edge
-let crossColor = c(0xF5D48A)   // Candlelight — bright warm highlight
-let shadowCol  = c(0x2E1006, a: 0.55)
+let bgCenter  = c(0x7B3B1C)          // warm terracotta — gradient centre
+let bgEdge    = c(0x4E1E0A)          // deep sienna — gradient edge
+let flameNS   = NSColor(cgColor: c(0xF5D48A))!  // Candlelight
+let shadowNS  = NSColor(cgColor: c(0x2E1006, a: 0.55))!
 
-// MARK: - Draw
+// MARK: - Tinted flame SF Symbol
+
+func tintedFlame(pointSize: CGFloat) -> NSImage {
+    let cfg = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+    guard let sym = NSImage(systemSymbolName: "flame.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg) else {
+        fatalError("flame.fill SF Symbol not available on this system")
+    }
+    // Fill with candlelight colour, masked by the symbol's alpha
+    let out = NSImage(size: sym.size, flipped: false) { rect in
+        flameNS.setFill()
+        rect.fill()
+        sym.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)
+        return true
+    }
+    return out
+}
+
+// MARK: - Draw icon
 
 func makeIcon(size: Int) -> CGImage {
     let s = CGFloat(size)
@@ -51,51 +68,34 @@ func makeIcon(size: Int) -> CGImage {
         options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
     )
 
-    // ── Cross geometry ────────────────────────────────────────────────
-    // Cross bounding box — centred, with padding
-    let cw = s * 0.50       // total cross width
-    let ch = s * 0.69       // total cross height
-    let tw = cw * 0.335     // arm / bar thickness
-    let cx = (s - cw) / 2   // cross left edge
-    let cy = (s - ch) / 2   // cross bottom edge  (y=0 is bottom in CG)
+    // ── Flame SF Symbol ───────────────────────────────────────────────
+    // pointSize drives how large the glyph is rendered; we'll centre it.
+    let flame     = tintedFlame(pointSize: s * 0.60)
+    let fw        = flame.size.width
+    let fh        = flame.size.height
+    let destRect  = CGRect(
+        x: (s - fw) / 2,
+        y: (s - fh) / 2 - s * 0.02,   // tiny downward nudge for visual balance
+        width:  fw,
+        height: fh
+    )
 
-    let vx = cx + (cw - tw) / 2   // vertical bar left edge
+    // Draw via NSGraphicsContext so NSShadow works
+    NSGraphicsContext.saveGraphicsState()
+    let nsCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+    NSGraphicsContext.current = nsCtx
 
-    // Horizontal bar: centre is at 30 % from cross top → 70 % from bottom
-    let hMid    = cy + ch * 0.695
-    let hBarTop = hMid + tw / 2       // top of h-bar
-    let hBarBot = hMid - tw / 2       // bottom of h-bar
+    let shadow = NSShadow()
+    shadow.shadowOffset     = NSSize(width: 0, height: -s * 0.014)
+    shadow.shadowBlurRadius = s * 0.045
+    shadow.shadowColor      = shadowNS
+    shadow.set()
 
-    // 12-vertex cross outline (clockwise in CG's y-up space)
-    let pts: [CGPoint] = [
-        CGPoint(x: vx,      y: cy + ch),   //  0 top-left of vert bar
-        CGPoint(x: vx + tw, y: cy + ch),   //  1 top-right
-        CGPoint(x: vx + tw, y: hBarTop),   //  2 inner top-right corner
-        CGPoint(x: cx + cw, y: hBarTop),   //  3 right end top
-        CGPoint(x: cx + cw, y: hBarBot),   //  4 right end bottom
-        CGPoint(x: vx + tw, y: hBarBot),   //  5 inner bottom-right corner
-        CGPoint(x: vx + tw, y: cy),        //  6 bottom-right of vert bar
-        CGPoint(x: vx,      y: cy),        //  7 bottom-left
-        CGPoint(x: vx,      y: hBarBot),   //  8 inner bottom-left corner
-        CGPoint(x: cx,      y: hBarBot),   //  9 left end bottom
-        CGPoint(x: cx,      y: hBarTop),   // 10 left end top
-        CGPoint(x: vx,      y: hBarTop),   // 11 inner top-left corner
-    ]
+    flame.draw(in: destRect)
 
-    let cross = CGMutablePath()
-    cross.move(to: pts[0])
-    pts.dropFirst().forEach { cross.addLine(to: $0) }
-    cross.closeSubpath()
+    NSGraphicsContext.restoreGraphicsState()
 
-    // ── Draw cross with drop shadow ───────────────────────────────────
-    ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.014),
-                  blur: s * 0.045, color: shadowCol)
-    ctx.setFillColor(crossColor)
-    ctx.addPath(cross)
-    ctx.fillPath()
-
-    // ── Subtle inner highlight (top 30 % of icon, very soft) ─────────
-    ctx.setShadow(offset: .zero, blur: 0, color: nil)   // clear shadow
+    // ── Subtle inner highlight (top 30 %, very soft) ──────────────────
     let hiGrad = CGGradient(
         colorsSpace: cs,
         colors: [c(0xFFFFFF, a: 0.055), c(0xFFFFFF, a: 0)] as CFArray,

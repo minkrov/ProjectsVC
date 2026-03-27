@@ -29,7 +29,11 @@ final class InstalledAppsProvider {
             for root in searchPaths {
                 found += self.scanDirectory(root)
             }
-            let sorted = found.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            // Deduplicate by bundle ID — same app can appear in both /Applications
+            // and ~/Applications, causing duplicate rows that confusingly toggle together.
+            var seen = Set<String>()
+            let unique = found.filter { seen.insert($0.bundleIdentifier).inserted }
+            let sorted = unique.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             DispatchQueue.main.async {
                 self.apps = sorted
                 completion(sorted)

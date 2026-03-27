@@ -19,11 +19,12 @@ struct SessionRecord: Codable, Identifiable {
 
     // MARK: - Display helpers
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short; return f
+    }()
+
     var formattedDate: String {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f.string(from: startTime)
+        Self.dateFormatter.string(from: startTime)
     }
 
     var formattedDuration: String {
@@ -33,7 +34,8 @@ struct SessionRecord: Codable, Identifiable {
         let minutes = (total % 3600) / 60
         if days > 0  { return "\(days)d \(hours)h" }
         if hours > 0 { return "\(hours)h \(minutes)m" }
-        return "\(minutes)m"
+        if minutes > 0 { return "\(minutes)m" }
+        return "< 1m"
     }
 
     var summary: String {

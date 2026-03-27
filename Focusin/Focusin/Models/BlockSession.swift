@@ -8,6 +8,32 @@ struct BlockSession: Codable, Identifiable {
     var endTime: Date
     var blockedWebsites: [String]      // bare domains, e.g. "reddit.com"
     var blockedApps: [BlockedApp]
+    var pomodoroEnabled: Bool
+    var pomodoroStartTime: Date?       // when Pomodoro was last toggled on; nil when off
+
+    // Custom decoder — keeps backwards compatibility with sessions saved before these fields existed
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id                = try c.decode(UUID.self,          forKey: .id)
+        startTime         = try c.decode(Date.self,          forKey: .startTime)
+        endTime           = try c.decode(Date.self,          forKey: .endTime)
+        blockedWebsites   = try c.decode([String].self,      forKey: .blockedWebsites)
+        blockedApps       = try c.decode([BlockedApp].self,  forKey: .blockedApps)
+        pomodoroEnabled   = try c.decodeIfPresent(Bool.self,  forKey: .pomodoroEnabled)   ?? false
+        pomodoroStartTime = try c.decodeIfPresent(Date.self,  forKey: .pomodoroStartTime)
+    }
+
+    init(id: UUID, startTime: Date, endTime: Date,
+         blockedWebsites: [String], blockedApps: [BlockedApp],
+         pomodoroEnabled: Bool = false, pomodoroStartTime: Date? = nil) {
+        self.id                = id
+        self.startTime         = startTime
+        self.endTime           = endTime
+        self.blockedWebsites   = blockedWebsites
+        self.blockedApps       = blockedApps
+        self.pomodoroEnabled   = pomodoroEnabled
+        self.pomodoroStartTime = pomodoroStartTime
+    }
 
     // MARK: Computed
 

@@ -18,8 +18,8 @@ final class AppWatcherService: ObservableObject {
     // MARK: - Start / Stop
 
     func start(blocking apps: [BlockedApp]) {
-        guard !apps.isEmpty else { return }
         blockedBundleIDs = Set(apps.map(\.bundleIdentifier))
+        guard !isRunning else { return }   // subscriptions already live; blockedIDs updated above
         isRunning = true
 
         // ── Instant kill on launch ─────────────────────────────────────
@@ -48,7 +48,14 @@ final class AppWatcherService: ObservableObject {
     func addBlocking(apps: [BlockedApp]) {
         let newIDs = Set(apps.map(\.bundleIdentifier))
         blockedBundleIDs.formUnion(newIDs)
-        sweepAll()  // immediately kill anything already running
+        if !isRunning {
+            // Watcher wasn't started (session had no apps initially) — start it now.
+            start(blocking: Array(blockedBundleIDs).map { id in
+                BlockedApp(name: "", bundleIdentifier: id)
+            })
+        } else {
+            sweepAll()  // immediately kill anything already running
+        }
     }
 
     func stop() {

@@ -14,9 +14,12 @@ final class HostsFileManager {
     // MARK: - Block
 
     /// Adds entries to /etc/hosts for every domain in the list (and www. variant).
-    /// Returns true if the operation succeeded.
+    /// Pass `replacing: true` when starting a fresh session — it removes any stale
+    /// Focusin block first so the new block is the only one. Pass `replacing: false`
+    /// (the default) when appending to an existing session via "Add More".
+    /// Both modes use a single privileged shell command → one admin prompt.
     @discardableResult
-    func blockDomains(_ domains: [String]) -> Bool {
+    func blockDomains(_ domains: [String], replacing: Bool = false) -> Bool {
         guard !domains.isEmpty else { return true }
 
         // Build the block to append
@@ -35,8 +38,14 @@ final class HostsFileManager {
         lines.append(HostsFileManager.blockEnd)
         let block = lines.joined(separator: "\\n")   // literal \n for shell printf
 
-        // Append via privileged shell command
-        let cmd = "printf '\\n\(block)\\n' >> /etc/hosts && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"
+        let cmd: String
+        if replacing {
+            // Clear any stale Focusin block before writing the new one.
+            cmd = "sed -i '' '/===FOCUSIN_BLOCK_START===/,/===FOCUSIN_BLOCK_END===/d' /etc/hosts; printf '\\n\(block)\\n' >> /etc/hosts && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"
+        } else {
+            // Append a new block alongside any existing one (safe for mid-session additions).
+            cmd = "printf '\\n\(block)\\n' >> /etc/hosts && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"
+        }
         return runPrivileged(cmd)
     }
 
@@ -53,7 +62,7 @@ final class HostsFileManager {
     // MARK: - Check existing block
 
     func hostsAreBlocked() -> Bool {
-        guard let content = try? String(contentsOfFile: "/etc/hosts") else { return false }
+        guard let content = try? String(contentsOfFile: "/etc/hosts", encoding: .utf8) else { return false }
         return content.contains(HostsFileManager.blockStart)
     }
 
