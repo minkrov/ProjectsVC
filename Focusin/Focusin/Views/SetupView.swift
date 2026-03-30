@@ -9,6 +9,7 @@ struct SetupView: View {
 
     // Website input
     @State private var websiteInput: String = ""
+    @State private var websiteInputError: String? = nil
     @State private var blockedWebsites: [String] = []
 
     // App selection
@@ -17,9 +18,12 @@ struct SetupView: View {
     @State private var appSearchText: String = ""
     @State private var appsLoaded = false
 
-    // Duration
-    @State private var durationDays: Int = 1
+    // Duration — stored as total hours so sub-day options are possible
+    @State private var durationHours: Int = 24
     @State private var pomodoroEnabled: Bool = false
+
+    private let hourOptions: [Int] = [1, 2, 4, 8]
+    private let dayOptions:  [Int] = [24, 48, 72, 96, 120, 144, 168]  // 1–7 days in hours
 
     // Preset groups
     private let presets: [(name: String, icon: String, domains: [String])] = [
@@ -67,22 +71,43 @@ struct SetupView: View {
 
                     // ─ Duration ─────────────────────────────────────────
                     SectionCard(title: "Duration", icon: "clock.fill") {
-                        VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 8) {
+
+                            // ── Hour row (sub-day options) ───────────────────
                             HStack(spacing: 0) {
-                                ForEach(1...7, id: \.self) { day in
-                                    Button { durationDays = day } label: {
-                                        Text(day == 1 ? "1 day" : "\(day)d")
-                                            .font(.system(size: 13, weight: durationDays == day ? .bold : .regular))
-                                            .foregroundColor(durationDays == day ? Theme.candlelight : Theme.secondaryText)
+                                ForEach(hourOptions, id: \.self) { h in
+                                    Button { durationHours = h } label: {
+                                        Text("\(h)h")
+                                            .font(.system(size: 13, weight: durationHours == h ? .bold : .regular))
+                                            .foregroundColor(durationHours == h ? Theme.candlelight : Theme.secondaryText)
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 8)
-                                            .background(durationDays == day ? Theme.terracotta : Color.clear)
+                                            .background(durationHours == h ? Theme.terracotta : Color.clear)
                                             .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    if day < 7 {
-                                        Divider()
+                                    if h != hourOptions.last { Divider() }
+                                }
+                            }
+                            .background(Theme.sandWall)
+                            .cornerRadius(8)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1))
+
+                            // ── Day row (1–7 days) ───────────────────────────
+                            HStack(spacing: 0) {
+                                ForEach(Array(dayOptions.enumerated()), id: \.offset) { idx, h in
+                                    let dayNum = idx + 1
+                                    Button { durationHours = h } label: {
+                                        Text(dayNum == 1 ? "1 day" : "\(dayNum)d")
+                                            .font(.system(size: 13, weight: durationHours == h ? .bold : .regular))
+                                            .foregroundColor(durationHours == h ? Theme.candlelight : Theme.secondaryText)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 8)
+                                            .background(durationHours == h ? Theme.terracotta : Color.clear)
+                                            .contentShape(Rectangle())
                                     }
+                                    .buttonStyle(.plain)
+                                    if idx < dayOptions.count - 1 { Divider() }
                                 }
                             }
                             .background(Theme.sandWall)
@@ -147,6 +172,12 @@ struct SetupView: View {
                             .background(Theme.sandWall)
                             .cornerRadius(8)
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1))
+
+                            if let err = websiteInputError {
+                                Text(err)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(Theme.destructive)
+                            }
 
                             if blockedWebsites.isEmpty {
                                 Text("No websites added yet. Enter a domain above and press Return or +.")
@@ -234,6 +265,7 @@ struct SetupView: View {
     }
 
     private func togglePreset(_ domains: [String]) {
+        websiteInputError = nil   // clear any stale input-validation error
         if isPresetActive(domains) {
             blockedWebsites.removeAll { domains.contains($0) }
         } else {
@@ -244,6 +276,7 @@ struct SetupView: View {
     }
 
     private func addWebsite() {
+        websiteInputError = nil
         var raw = websiteInput
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -255,6 +288,13 @@ struct SetupView: View {
             websiteInput = ""
             return
         }
+        // Reject characters that are not valid in hostnames. This matches the
+        // security gate in HostsFileManager and gives the user immediate feedback.
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        guard raw.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            websiteInputError = "Invalid domain — only letters, numbers, hyphens, and dots are allowed."
+            return
+        }
         blockedWebsites.append(raw)
         websiteInput = ""
     }
@@ -263,13 +303,13 @@ struct SetupView: View {
         let apps = installedApps
             .filter { selectedBundleIDs.contains($0.bundleIdentifier) }
             .map { BlockedApp(name: $0.name, bundleIdentifier: $0.bundleIdentifier) }
-        let end = Calendar.current.date(byAdding: .day, value: durationDays, to: Date())!
+        let end = Date().addingTimeInterval(TimeInterval(durationHours) * 3600)
         onNext(PendingSession(blockedWebsites: blockedWebsites, blockedApps: apps,
                               endTime: end, pomodoroEnabled: pomodoroEnabled))
     }
 
     private var formattedEndDate: String {
-        let end = Calendar.current.date(byAdding: .day, value: durationDays, to: Date())!
+        let end = Date().addingTimeInterval(TimeInterval(durationHours) * 3600)
         let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .short
         return f.string(from: end)
     }

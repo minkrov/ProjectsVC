@@ -216,7 +216,11 @@ struct CommitmentView: View {
     }
 
     private var durationDescription: String {
-        let secs = pending.endTime.timeIntervalSince(Date())
+        // Add 30 s before truncating so the result rounds to the nearest minute.
+        // Without this, a session set to exactly 1 hour computes as 3599.x seconds
+        // by the time CommitmentView renders, making Int(secs/3600) = 0 and
+        // falling through to "59 minutes" instead of "1 hour".
+        let secs = pending.endTime.timeIntervalSince(Date()) + 30
         let days    = Int(secs / 86400)
         let hours   = Int(secs.truncatingRemainder(dividingBy: 86400) / 3600)
         let minutes = Int(secs.truncatingRemainder(dividingBy: 3600) / 60)

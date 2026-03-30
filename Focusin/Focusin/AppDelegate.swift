@@ -44,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Restore an active session that survived a relaunch / login
         if let session = sessionManager.currentSession, session.isActive {
-            hasCleanedUpSession = false   // reset so cleanup works when this session ends
             // In-process watcher for while this app is in the foreground
             appWatcher.start(blocking: session.blockedApps)
             // Ensure the persistent watcher LaunchAgent is still installed
@@ -118,6 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Background Mode (status bar only)
 
     func enterBackgroundMode(session: BlockSession) {
+        // Reset the cleanup guard so cleanUpExpiredSession fires exactly once
+        // for this session — handles the case where a second session is started
+        // within the same app launch after the first one ended.
+        hasCleanedUpSession = false
         NSApp.setActivationPolicy(.accessory)   // no dock icon
         setupStatusBar(session: session)
     }
@@ -281,8 +284,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appWatcher.stop()
 
         if !session.blockedWebsites.isEmpty {
-            DispatchQueue.global(qos: .userInitiated).async {
-                HostsFileManager().unblockDomains()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let mgr = HostsFileManager()
+                // Skip the admin prompt entirely if already unblocked — this happens
+                // when FocusinWatcher fires first (e.g. main app was closed) or when
+                // both the AppDelegate expiry timer and ActiveSessionView's timer fire
+                // close together and one path already handled cleanup.
+                guard mgr.hostsAreBlocked() else { return }
+                if !mgr.unblockDomains() {
+                    // User cancelled or dismissed the admin prompt — show a retry alert
+                    // so websites don't stay blocked after the session ends.
+                    DispatchQueue.main.async { self?.showUnblockRetryAlert() }
+                }
             }
         }
 
@@ -312,5 +325,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Signal ContentView to show the session-end overlay, then bring the window front.
         sessionManager.sessionJustEnded = true
         showMainWindow()
+    }
+
+    // MARK: - Unblock retry
+
+    private func showUnblockRetryAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't Remove Website Blocks"
+        alert.informativeText = "Your session is over, but Focusin couldn't update /etc/hosts because the password prompt was dismissed. Click Retry to unblock your websites now."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Retry")
+        alert.addButton(withTitle: "Dismiss")
+        if alert.runModal() == .alertFirstButtonReturn {
+            DispatchQueue.global(qos: .userInitiated).async {
+                HostsFileManager().unblockDomains()
+            }
+        }
     }
 }

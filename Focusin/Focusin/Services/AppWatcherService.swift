@@ -49,10 +49,9 @@ final class AppWatcherService: ObservableObject {
         let newIDs = Set(apps.map(\.bundleIdentifier))
         blockedBundleIDs.formUnion(newIDs)
         if !isRunning {
-            // Watcher wasn't started (session had no apps initially) — start it now.
-            start(blocking: Array(blockedBundleIDs).map { id in
-                BlockedApp(name: "", bundleIdentifier: id)
-            })
+            // Watcher wasn't started (session had no apps initially) — start it now
+            // using the provided apps directly so names are preserved.
+            start(blocking: apps)
         } else {
             sweepAll()  // immediately kill anything already running
         }
@@ -76,7 +75,8 @@ final class AppWatcherService: ObservableObject {
         guard
             let bid = app.bundleIdentifier,
             blockedBundleIDs.contains(bid),
-            app.processIdentifier != myPID
+            app.processIdentifier != myPID,
+            !app.isTerminated      // don't call forceTerminate on a zombie process
         else { return }
         app.forceTerminate()
     }

@@ -30,6 +30,11 @@ final class HostsFileManager {
                 .replacingOccurrences(of: "^https?://", with: "", options: .regularExpression)
                 .replacingOccurrences(of: "/.*$", with: "", options: .regularExpression)
             guard !d.isEmpty else { continue }
+            // Only allow characters valid in hostnames. Single-quotes, semicolons, and
+            // other shell metacharacters must never reach the printf '...' string —
+            // this is the authoritative security gate that prevents shell injection.
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+            guard d.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { continue }
             lines.append("127.0.0.1 \(d)")
             if !d.hasPrefix("www.") {
                 lines.append("127.0.0.1 www.\(d)")

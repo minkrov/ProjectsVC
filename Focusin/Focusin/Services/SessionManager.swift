@@ -32,8 +32,13 @@ final class SessionManager: ObservableObject {
         if session.isActive {
             currentSession = session
         } else {
-            // Expired while app was closed — signal ContentView to show the completion overlay.
-            sessionJustEnded = true
+            // Expired while app was closed — signal ContentView to show the completion overlay,
+            // but only if the session ended recently (within 24 h). A very old expired session
+            // (e.g. leftover data from a previous install or beta run) is cleaned up silently
+            // so the user doesn't see a confusing celebration screen on first launch.
+            if session.endTime.timeIntervalSinceNow > -(24 * 3600) {
+                sessionJustEnded = true
+            }
             currentSession = nil
             silentlyDeleteSessionFile()
         }

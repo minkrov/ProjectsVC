@@ -211,6 +211,14 @@ struct AddMoreView: View {
         guard !raw.isEmpty,
               !newWebsites.contains(raw),
               !alreadyBlockedDomains.contains(raw) else { websiteInput = ""; return }
+        // Reject characters not valid in hostnames — same rule as HostsFileManager's
+        // security gate, surfaced here so the user sees immediate feedback.
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        guard raw.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            errorMessage = "Invalid domain — only letters, numbers, hyphens, and dots are allowed."
+            websiteInput = ""
+            return
+        }
         newWebsites.append(raw)
         websiteInput = ""
     }
@@ -224,10 +232,13 @@ struct AddMoreView: View {
             .map { BlockedApp(name: $0.name, bundleIdentifier: $0.bundleIdentifier) }
 
         DispatchQueue.global(qos: .userInitiated).async {
-            // Block new websites (admin prompt if any)
+            // Rewrite the entire block (existing + new) with replacing:true so
+            // /etc/hosts never accumulates multiple FOCUSIN_BLOCK sections from
+            // repeated "Add more" uses within the same session.
             var hostsOK = true
             if !newWebsites.isEmpty {
-                hostsOK = HostsFileManager().blockDomains(newWebsites)
+                let allDomains = session.blockedWebsites + newWebsites
+                hostsOK = HostsFileManager().blockDomains(allDomains, replacing: true)
             }
             DispatchQueue.main.async {
                 if !hostsOK {

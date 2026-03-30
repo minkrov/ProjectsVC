@@ -70,6 +70,13 @@ struct ContentView: View {
         agents.installWatcherAgent()
         // Schedule a system notification for when the session ends
         scheduleEndNotification(for: session)
+        // Set up the status-bar countdown and arm the expiry polling timer.
+        // Without this, a brand-new session (not restored from disk) would show
+        // no status bar icon when the user hides the window during a session.
+        if let delegate = NSApp.delegate as? AppDelegate {
+            delegate.enterBackgroundMode(session: session)
+            delegate.scheduleExpiryTimer(for: session)
+        }
     }
 
     private func scheduleEndNotification(for session: BlockSession) {
@@ -87,33 +94,12 @@ struct ContentView: View {
     // MARK: - Session Expiry
 
     private func handleExpiry() {
-        guard let session = sessionManager.currentSession else { return }
-        appWatcher.stop()
-        if !session.blockedWebsites.isEmpty {
-            DispatchQueue.global(qos: .userInitiated).async {
-                HostsFileManager().unblockDomains()
-            }
-        }
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["focusin.session.end"])
-        sessionManager.clearSession()
-        let agents = LaunchAgentManager()
-        agents.uninstallWatcherAgent()
-        agents.uninstallMainAppAgent()
-
-        // Deliver an immediate notification so the user is informed even if the
-        // window is hidden or they're in another Space.
-        let content = UNMutableNotificationContent()
-        content.title = "Focus Session Complete 🎉"
-        content.body  = "Your focus session has ended. Everything is now accessible again."
-        content.sound = .default
-        let req = UNNotificationRequest(identifier: "focusin.session.end.now",
-                                        content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(req) { _ in }
-
-        // Show the calm session-end overlay on top of the home screen
-        withAnimation(.easeIn(duration: 0.4)) {
-            showSessionEndOverlay = true
-        }
+        // Route all cleanup through AppDelegate so the hasCleanedUpSession guard
+        // prevents double-execution when both ActiveSessionView's 1-second timer
+        // and AppDelegate's 5-second expiry timer fire close together.
+        // The session-end overlay is shown via sessionManager.sessionJustEnded
+        // which is set inside cleanUpExpiredSession and observed by onChange below.
+        (NSApp.delegate as? AppDelegate)?.cleanUpExpiredSession()
     }
 }
 
