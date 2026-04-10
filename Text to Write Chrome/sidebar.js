@@ -230,6 +230,16 @@ async function beginTyping() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+    // Ensure content script is running in all frames. This is a no-op on pages
+    // where it's already running (guard in content.js prevents double-execution),
+    // and injects it on pages loaded before the extension was installed.
+    // If injection fails (chrome:// pages, PDFs, etc.) we continue — the
+    // background's frame-scan fallback will still find any focused element.
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      files: ["content.js"],
+    }).catch(() => {});
+
     const naturalPauses = naturalPausesCheckbox.checked;
     const pauseEvery    = Math.max(1, parseInt(document.getElementById("pause-every").value)    || 7);
     const pauseDuration = Math.max(1, parseInt(document.getElementById("pause-duration").value) || 10);
@@ -461,6 +471,21 @@ function setStatus(msg, type = "") {
     document.getElementById("target-value").textContent = saved.targetDesc;
     document.getElementById("target-box").className =
       saved.targetReady ? "target-box ready" : "target-box none";
+  }
+
+  // Inject content script into the active tab so it works on already-open tabs
+  // (Chrome only auto-injects declarative content scripts into pages loaded
+  // after the extension is installed — existing open tabs need this).
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (activeTab?.id) {
+      await chrome.scripting.executeScript({
+        target: { tabId: activeTab.id, allFrames: true },
+        files: ["content.js"],
+      });
+    }
+  } catch (_) {
+    // Silently ignore: chrome:// pages, PDFs, etc. disallow injection
   }
 
   // Unlock saving — from here on every user interaction is immediately persisted

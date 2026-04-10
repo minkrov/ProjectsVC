@@ -77,8 +77,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "get-focused-frame") {
-    _stateReady.then(() => {
-      sendResponse({ frameId: lastFocusedFrame.get(msg.tabId) ?? null });
+    _stateReady.then(async () => {
+      let frameId = lastFocusedFrame.get(msg.tabId) ?? null;
+
+      // Fallback: if no frame was tracked yet (e.g. extension just installed,
+      // or the focus event arrived before content script was running), scan every
+      // frame in the tab and find the first one that has a focused typable element.
+      // This is what makes Google Docs' about:blank iframe discoverable even when
+      // the user hasn't re-clicked since the extension was loaded.
+      if (frameId == null) {
+        try {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: msg.tabId, allFrames: true },
+            func: () => {
+              const el  = document.activeElement;
+              const tag = el ? el.tagName.toLowerCase() : "";
+              const typableInput =
+                tag === "textarea" ||
+                (tag === "input" &&
+                  ["text", "search", "email", "url", "tel", "password", "number", ""]
+                    .includes((el.type || "text").toLowerCase()));
+              return (
+                typableInput ||
+                !!(el && el.isContentEditable) ||
+                !!(document.body && document.body.isContentEditable)
+              );
+            },
+          });
+          const hit = results.find((r) => r.result === true);
+          if (hit != null) {
+            frameId = hit.frameId;
+            // Cache so the next call doesn't need to scan
+            lastFocusedFrame.set(msg.tabId, frameId);
+            lastFocusedTabId   = msg.tabId;
+            lastFocusedFrameId = frameId;
+            persistState();
+          }
+        } catch (_) {
+          // Scan failed (chrome:// page, no host permissions, etc.) — return null
+        }
+      }
+
+      sendResponse({ frameId });
     });
     return true; // async — keep channel open until sendResponse fires
   }

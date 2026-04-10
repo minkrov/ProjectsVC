@@ -8,13 +8,21 @@ struct ContentView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @EnvironmentObject var appWatcher: AppWatcherService
 
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+
     @State private var showingSetupSheet    = false
     @State private var showSessionEndOverlay = false
 
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if showingSetupSheet {
+                if !hasSeenOnboarding {
+                    OnboardingView {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            hasSeenOnboarding = true
+                        }
+                    }
+                } else if showingSetupSheet {
                     SetupCoordinator { session in
                         activateSession(session)
                         showingSetupSheet = false

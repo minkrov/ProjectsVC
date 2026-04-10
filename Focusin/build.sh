@@ -51,6 +51,7 @@ SOURCES=(
   Focusin/Views/AddMoreView.swift
   Focusin/Views/MenuBarPopoverView.swift
   Focusin/Views/SessionEndOverlayView.swift
+  Focusin/Views/OnboardingView.swift
 )
 
 # ── Compile main app ───────────────────────────────────────────────
@@ -140,6 +141,12 @@ mkdir -p "$STAGING"
 cp -R "$APP_BUNDLE" "$STAGING/$PRODUCT.app"
 ln -s /Applications "$STAGING/Applications"
 
+# ── DMG background image ───────────────────────────────────────────
+BG_DIR="$STAGING/.background"
+BG_FILE="$BG_DIR/background.png"
+mkdir -p "$BG_DIR"
+swift generate_dmg_bg.swift "$BG_FILE"
+
 # 1. Create a writable DMG from the staging folder
 hdiutil create \
   -volname   "$PRODUCT" \
@@ -166,8 +173,9 @@ tell application "Finder"
     set the bounds of container window to {200, 120, 780, 460}
     set viewOptions to the icon view options of container window
     set arrangement   of viewOptions to not arranged
-    set icon size     of viewOptions to 96
+    set icon size     of viewOptions to 100
     set text size     of viewOptions to 12
+    set background picture of viewOptions to file ".background:background.png"
     -- Position: app on left, Applications folder on right
     set position of item "$PRODUCT.app"   of container window to {160, 160}
     set position of item "Applications"   of container window to {420, 160}

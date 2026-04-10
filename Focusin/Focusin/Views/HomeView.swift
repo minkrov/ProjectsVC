@@ -94,10 +94,66 @@ struct HomeView: View {
                 // ── Start button ─────────────────────────────────────────
                 Button("Start a Focus Session", action: onStart)
                     .buttonStyle(PrimaryButtonStyle())
-                    .padding(.bottom, 48)
+                    .padding(.bottom, 16)
+
+                // ── Uninstall link ────────────────────────────────────────
+                Button("Uninstall Focusin…") { showUninstallAlert() }
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.secondaryText.opacity(0.55))
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 32)
             }
         }
         .onAppear { history = HistoryManager.shared.load() }
+    }
+
+    // MARK: - Uninstall
+
+    private func showUninstallAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Focusin?"
+        alert.informativeText = """
+            This will permanently remove:
+
+            • Both Focusin LaunchAgents (login items)
+            • All session history and data
+            • The Focusin app itself
+
+            This cannot be undone.
+            """
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+
+        // Make the Uninstall button destructive-looking
+        alert.buttons.first?.hasDestructiveAction = true
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        performUninstall()
+    }
+
+    private func performUninstall() {
+        // 1. Remove both LaunchAgents (unload from launchd + delete plists)
+        let agents = LaunchAgentManager()
+        agents.uninstallMainAppAgent()
+        agents.uninstallWatcherAgent()
+
+        // 2. Delete all app data (session.json, history.json)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let dataDir = appSupport?.appendingPathComponent("Focusin") {
+            try? FileManager.default.removeItem(at: dataDir)
+        }
+
+        // 3. Clear UserDefaults (hasSeenOnboarding, any future prefs)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        }
+
+        // 4. Move the .app bundle to Trash, then quit
+        let appURL = Bundle.main.bundleURL
+        NSWorkspace.shared.recycle([appURL]) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 }
 

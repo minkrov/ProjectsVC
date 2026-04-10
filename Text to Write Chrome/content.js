@@ -1,3 +1,8 @@
+// Guard against double-injection (programmatic injection on already-open tabs)
+(function () {
+if (window.__textToWriteLoaded) return;
+window.__textToWriteLoaded = true;
+
 let lastFocusedEl  = null;
 let stopTyping     = false;
 let pausedTyping   = false;
@@ -814,3 +819,24 @@ function sleep(ms) {
   });
 }
 function jitter(maxMs)           { return Math.random() * maxMs - maxMs / 2; }
+
+// ---------------------------------------------------------------------------
+// Auto-detect on injection — report whatever element is already focused so the
+// sidebar shows a target without requiring the user to re-click after the
+// extension is first installed or after a programmatic injection.
+// ---------------------------------------------------------------------------
+setTimeout(() => {
+  if (lastFocusedEl) return; // already tracking something
+  const active = document.activeElement;
+  const candidate =
+    (active && (isTypable(active) || active.isContentEditable))
+      ? active
+      : (document.body?.isContentEditable ? document.body : null);
+  if (candidate) {
+    lastFocusedEl = candidate;
+    notifySidebar(candidate);
+    sendRuntimeMessage({ action: "frame-focused" });
+  }
+}, 0);
+
+})(); // end double-injection guard
