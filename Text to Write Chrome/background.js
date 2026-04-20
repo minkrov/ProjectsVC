@@ -43,25 +43,49 @@ function persistState() {
 // so that message handlers which read persisted state can await it before
 // acting.  chrome.storage.session.get() is an IPC call and resolves
 // asynchronously — message dispatch can race ahead of the .then() callback if
-// we don't explicitly gate on this promise.  Handlers that only write state
-// (frame-focused, typing-started, timer-request) don't need to wait; only the
-// three read-heavy handlers below do.
+// we don't explicitly gate on this promise.  Live messages can also arrive
+// before the restore finishes, so the hydration step must only fill gaps and
+// never overwrite newer in-memory writes from the current worker lifetime.
 const _stateReady = chrome.storage.session.get([
   'sw_lastFocusedTabId', 'sw_lastFocusedFrameId', 'sw_lastFocusedFrameMap',
   'sw_typingTabId', 'sw_typingFrameId',
 ]).then((data) => {
-  if (data.sw_lastFocusedTabId   != null) lastFocusedTabId   = data.sw_lastFocusedTabId;
-  if (data.sw_lastFocusedFrameId != null) lastFocusedFrameId = data.sw_lastFocusedFrameId;
-  if (Array.isArray(data.sw_lastFocusedFrameMap)) {
-    for (const [k, v] of data.sw_lastFocusedFrameMap) lastFocusedFrame.set(k, v);
+  if (lastFocusedTabId == null && data.sw_lastFocusedTabId != null) {
+    lastFocusedTabId = data.sw_lastFocusedTabId;
   }
-  if (data.sw_typingTabId   != null) typingTabId   = data.sw_typingTabId;
-  if (data.sw_typingFrameId != null) typingFrameId = data.sw_typingFrameId;
+  if (lastFocusedFrameId == null && data.sw_lastFocusedFrameId != null) {
+    lastFocusedFrameId = data.sw_lastFocusedFrameId;
+  }
+  if (Array.isArray(data.sw_lastFocusedFrameMap)) {
+    for (const [k, v] of data.sw_lastFocusedFrameMap) {
+      if (!lastFocusedFrame.has(k)) lastFocusedFrame.set(k, v);
+    }
+  }
+  if (typingTabId == null && data.sw_typingTabId != null) {
+    typingTabId = data.sw_typingTabId;
+  }
+  if (typingFrameId == null && data.sw_typingFrameId != null) {
+    typingFrameId = data.sw_typingFrameId;
+  }
 }).catch(() => {});
 
 function clearPendingTimers(tabId) {
   const set = pendingTimers.get(tabId);
   if (set) { set.forEach(clearTimeout); pendingTimers.delete(tabId); }
+}
+
+function clearTrackedTabState(tabId) {
+  lastFocusedFrame.delete(tabId);
+  if (lastFocusedTabId === tabId) {
+    lastFocusedTabId = null;
+    lastFocusedFrameId = null;
+  }
+  if (typingTabId === tabId) {
+    typingTabId = null;
+    typingFrameId = null;
+  }
+  clearPendingTimers(tabId);
+  persistState();
 }
 
 // Chrome MV3: message listeners must use sendResponse (not return a Promise)
@@ -212,14 +236,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Relay a control message (pause / resume / stop) directly to the last
-  // focused frame — more reliable than the sidebar doing its own tab query.
+  // focused frame, unless a typing session is active. In that case the control
+  // must target the typing frame even if focus moved elsewhere while paused.
   if (msg.action === "relay-to-frame") {
     _stateReady.then(() => {
-      if (lastFocusedTabId != null && lastFocusedFrameId != null) {
+      const targetTabId = typingTabId ?? lastFocusedTabId;
+      const targetFrameId = typingFrameId ?? lastFocusedFrameId;
+      if (targetTabId != null && targetFrameId != null) {
         chrome.tabs.sendMessage(
-          lastFocusedTabId,
+          targetTabId,
           msg.payload,
-          { frameId: lastFocusedFrameId }
+          { frameId: targetFrameId }
         ).catch(() => {});
       }
       sendResponse({ ok: true });
@@ -230,15 +257,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // Clean up when a tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
-  lastFocusedFrame.delete(tabId);
-  if (lastFocusedTabId === tabId) {
-    lastFocusedTabId  = null;
-    lastFocusedFrameId = null;
+  clearTrackedTabState(tabId);
+});
+
+// Full navigations invalidate frameIds. Clear cached routing state so the next
+// control/query falls back to a fresh frame scan instead of targeting a dead frame.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading") {
+    clearTrackedTabState(tabId);
   }
-  if (typingTabId === tabId) {
-    typingTabId   = null;
-    typingFrameId = null;
-  }
-  clearPendingTimers(tabId);
-  persistState();
 });

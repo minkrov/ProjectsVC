@@ -1,8 +1,4 @@
-const speedDelays = {
-  slow: 120,
-  medium: 45,
-  fast: 12,
-};
+const { speedDelays, behaviorStorageKeys, normalizeTypingBehavior } = globalThis.TextToWriteConfig;
 
 let selectedSpeed = "medium";
 
@@ -36,34 +32,23 @@ startBtn.addEventListener("click", async () => {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
 
     // Read saved behavior settings from storage (shared with sidebar)
-    const saved = await browser.storage.local.get([
-      "naturalPauses", "pauseEvery", "pauseDuration", "varyTimes",
-      "punctPauses", "varSpeed", "makeMistakes", "mistakePause", "mistakeRate",
-    ]).catch(() => ({}));
-
-    const naturalPauses = saved.naturalPauses ?? false;
-    const pauseEvery    = Math.max(1, parseInt(saved.pauseEvery)    || 7);
-    const pauseDuration = Math.max(1, parseInt(saved.pauseDuration) || 10);
-    const varyTimes     = saved.varyTimes    ?? false;
-    const punctPauses   = saved.punctPauses  ?? false;
-    const varSpeed      = saved.varSpeed     ?? false;
-    const mistakes      = saved.makeMistakes ?? false;
-    const mistakePause  = Math.max(1, parseInt(saved.mistakePause) || 5);
-    const mistakeRate   = Math.max(1, Math.min(50, parseInt(saved.mistakeRate) || 10));
+    const saved = await browser.storage.local.get(behaviorStorageKeys).catch(() => ({}));
+    const behavior = normalizeTypingBehavior(saved);
 
     const result = await browser.tabs.sendMessage(tab.id, {
       action: "type",
       text,
       delay,
-      naturalPauses,
-      pauseEvery:    pauseEvery * 1000,
-      pauseDuration: pauseDuration * 1000,
-      varyTimes,
-      punctPauses,
-      varSpeed,
-      mistakes,
-      mistakePause:  mistakePause * 1000,
-      mistakeRate:   mistakeRate / 100,
+      naturalPauses: behavior.naturalPauses,
+      pauseEvery: behavior.pauseEveryMs,
+      pauseDuration: behavior.pauseDurationMs,
+      varyTimes: behavior.varyTimes,
+      punctPauses: behavior.punctPauses,
+      varSpeed: behavior.varSpeed,
+      wordDifficulty: behavior.wordDifficulty,
+      mistakes: behavior.mistakes,
+      mistakePause: behavior.mistakePauseMs,
+      mistakeRate: behavior.mistakeRateFraction,
     });
 
     if (result && result.success) {

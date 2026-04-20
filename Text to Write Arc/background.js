@@ -78,7 +78,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     if (tab?.id != null) {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
-        files: ["content.js"],
+        files: ["typing-options.js", "content.js"],
       }).catch(() => {});
 
       await chrome.tabs.sendMessage(
@@ -156,7 +156,7 @@ function schedulePendingStart() {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: job.tabId, allFrames: true },
-        files: ["content.js"],
+        files: ["typing-options.js", "content.js"],
       }).catch(() => {});
 
       const frameId = await resolveFocusedFrame(job.tabId);

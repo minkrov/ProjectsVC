@@ -1,5 +1,26 @@
-const speedDelays = { slow: 120, medium: 45, fast: 12 };
+const { speedDelays, normalizeTypingBehavior } = globalThis.TextToWriteConfig;
 let selectedSpeed = "medium";
+const speedButtons = [...document.querySelectorAll(".speed-btn")];
+
+const els = {
+  textInput: document.getElementById("text-input"),
+  progressSection: document.getElementById("progress-section"),
+  progressFill: document.getElementById("progress-bar-fill"),
+  progressLabel: document.getElementById("progress-label"),
+  status: document.getElementById("status"),
+  targetValue: document.getElementById("target-value"),
+  targetBox: document.getElementById("target-box"),
+  startBtn: document.getElementById("start-btn"),
+  stopBtn: document.getElementById("stop-btn"),
+  varSpeed: document.getElementById("var-speed"),
+  wordDifficulty: document.getElementById("word-difficulty"),
+  pauseEvery: document.getElementById("pause-every"),
+  pauseDuration: document.getElementById("pause-duration"),
+  punctPauses: document.getElementById("punct-pauses"),
+  varyTimes: document.getElementById("vary-times"),
+  mistakePause: document.getElementById("mistake-pause"),
+  mistakeRate: document.getElementById("mistake-rate"),
+};
 
 // ---------------------------------------------------------------------------
 // Progress bar
@@ -12,32 +33,37 @@ function countWords(text) {
 }
 
 function updateProgress(wordsTyped, total, finished) {
-  const section = document.getElementById("progress-section");
-  const fill    = document.getElementById("progress-bar-fill");
-  const label   = document.getElementById("progress-label");
-  section.classList.add("visible");
+  els.progressSection.classList.add("visible");
   const pct = total > 0 ? Math.min(100, (wordsTyped / total) * 100) : 0;
-  fill.style.width = pct + "%";
+  els.progressFill.style.width = pct + "%";
   if (finished) {
-    fill.classList.add("finished");
-    label.classList.add("finished");
-    label.textContent = `Finished · ${total} word${total !== 1 ? "s" : ""}`;
+    els.progressFill.classList.add("finished");
+    els.progressLabel.classList.add("finished");
+    els.progressLabel.textContent = `Finished · ${total} word${total !== 1 ? "s" : ""}`;
   } else {
-    fill.classList.remove("finished");
-    label.classList.remove("finished");
-    label.textContent = `${wordsTyped} / ${total} word${total !== 1 ? "s" : ""}`;
+    els.progressFill.classList.remove("finished");
+    els.progressLabel.classList.remove("finished");
+    els.progressLabel.textContent = `${wordsTyped} / ${total} word${total !== 1 ? "s" : ""}`;
   }
 }
 
 function resetProgress() {
-  const section = document.getElementById("progress-section");
-  const fill    = document.getElementById("progress-bar-fill");
-  const label   = document.getElementById("progress-label");
-  section.classList.remove("visible");
-  fill.style.width = "0%";
-  fill.classList.remove("finished");
-  label.classList.remove("finished");
-  label.textContent = "";
+  els.progressSection.classList.remove("visible");
+  els.progressFill.style.width = "0%";
+  els.progressFill.classList.remove("finished");
+  els.progressLabel.classList.remove("finished");
+  els.progressLabel.textContent = "";
+}
+
+function persistProgressState(totalWords, wordsTyped) {
+  chrome.storage.local.set({ totalWords, wordsTyped }).catch(() => {});
+}
+
+function clearProgressState() {
+  _totalWords = 0;
+  _wordsTyped = 0;
+  resetProgress();
+  persistProgressState(0, 0);
 }
 
 // Prevent saveSettings() from writing during the startup restore pass
@@ -49,26 +75,46 @@ let isInitializing = true;
 function saveSettings() {
   if (isInitializing) return;
   chrome.storage.local.set({
-    textInput:     document.getElementById("text-input").value,
+    textInput: els.textInput.value,
     selectedSpeed,
-    varSpeed:      document.getElementById("var-speed").checked,
+    varSpeed: els.varSpeed.checked,
     naturalPauses: naturalPausesCheckbox.checked,
-    pauseEvery:    document.getElementById("pause-every").value,
-    pauseDuration: document.getElementById("pause-duration").value,
-    punctPauses:   document.getElementById("punct-pauses").checked,
-    varyTimes:     document.getElementById("vary-times").checked,
+    pauseEvery: els.pauseEvery.value,
+    pauseDuration: els.pauseDuration.value,
+    punctPauses: els.punctPauses.checked,
+    varyTimes: els.varyTimes.checked,
+    wordDifficulty: els.wordDifficulty.checked,
     makeMistakes:  mistakesCheckbox.checked,
-    mistakePause:  document.getElementById("mistake-pause").value,
-    mistakeRate:   document.getElementById("mistake-rate").value,
+    mistakePause: els.mistakePause.value,
+    mistakeRate: els.mistakeRate.value,
   }).catch(() => {});
 }
 
+function setActiveSpeed(speed) {
+  selectedSpeed = speed;
+  speedButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.speed === speed);
+  });
+}
+
+function setExpandableSection({ row, panel }, expanded) {
+  row.classList.toggle("expanded", expanded);
+  panel.classList.toggle("expanded", expanded);
+}
+
+function bindExpandableSection({ checkbox, row, panel }, onToggle) {
+  row.addEventListener("click", (event) => {
+    if (event.target !== checkbox) checkbox.checked = !checkbox.checked;
+    onToggle();
+  });
+  checkbox.addEventListener("change", onToggle);
+  return (expanded) => setExpandableSection({ row, panel }, expanded);
+}
+
 // Speed selector
-document.querySelectorAll(".speed-btn").forEach((btn) => {
+speedButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".speed-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    selectedSpeed = btn.dataset.speed;
+    setActiveSpeed(btn.dataset.speed);
     saveSettings();
   });
 });
@@ -77,17 +123,18 @@ document.querySelectorAll(".speed-btn").forEach((btn) => {
 const naturalPausesCheckbox    = document.getElementById("natural-pauses");
 const naturalPausesRow         = document.getElementById("natural-pauses-row");
 const naturalPausesCollapsible = document.getElementById("natural-pauses-collapsible");
-
-naturalPausesRow.addEventListener("click", (e) => {
-  if (e.target !== naturalPausesCheckbox) naturalPausesCheckbox.checked = !naturalPausesCheckbox.checked;
-  updateNaturalPausesPanel();
-});
-naturalPausesCheckbox.addEventListener("change", updateNaturalPausesPanel);
+const applyNaturalPausesSection = bindExpandableSection(
+  {
+    checkbox: naturalPausesCheckbox,
+    row: naturalPausesRow,
+    panel: naturalPausesCollapsible,
+  },
+  updateNaturalPausesPanel
+);
 
 function updateNaturalPausesPanel() {
   const on = naturalPausesCheckbox.checked;
-  naturalPausesRow.classList.toggle("expanded", on);
-  naturalPausesCollapsible.classList.toggle("expanded", on);
+  applyNaturalPausesSection(on);
   saveSettings();
 }
 
@@ -95,17 +142,18 @@ function updateNaturalPausesPanel() {
 const mistakesCheckbox   = document.getElementById("make-mistakes");
 const mistakesRow        = document.getElementById("mistakes-row");
 const mistakeCollapsible = document.getElementById("mistake-collapsible");
-
-mistakesRow.addEventListener("click", (e) => {
-  if (e.target !== mistakesCheckbox) mistakesCheckbox.checked = !mistakesCheckbox.checked;
-  updateMistakePanel();
-});
-mistakesCheckbox.addEventListener("change", updateMistakePanel);
+const applyMistakesSection = bindExpandableSection(
+  {
+    checkbox: mistakesCheckbox,
+    row: mistakesRow,
+    panel: mistakeCollapsible,
+  },
+  updateMistakePanel
+);
 
 function updateMistakePanel() {
   const on = mistakesCheckbox.checked;
-  mistakesRow.classList.toggle("expanded", on);
-  mistakeCollapsible.classList.toggle("expanded", on);
+  applyMistakesSection(on);
   saveSettings();
 }
 
@@ -113,16 +161,16 @@ function updateMistakePanel() {
 // The main text box is debounced — pasting or typing a long essay would
 // otherwise trigger a storage write on every single keystroke.
 let _saveTextTimeout = null;
-document.getElementById("text-input").addEventListener("input", () => {
+els.textInput.addEventListener("input", () => {
   if (isInitializing) return;
   clearTimeout(_saveTextTimeout);
   _saveTextTimeout = setTimeout(saveSettings, 500);
 });
-["pause-every", "pause-duration", "mistake-pause", "mistake-rate"].forEach((id) => {
-  document.getElementById(id).addEventListener("input", saveSettings);
+[els.pauseEvery, els.pauseDuration, els.mistakePause, els.mistakeRate].forEach((input) => {
+  input.addEventListener("input", saveSettings);
 });
-["var-speed", "punct-pauses", "vary-times"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", saveSettings);
+[els.varSpeed, els.wordDifficulty, els.punctPauses, els.varyTimes].forEach((input) => {
+  input.addEventListener("change", saveSettings);
 });
 
 // ---------------------------------------------------------------------------
@@ -131,34 +179,42 @@ document.getElementById("text-input").addEventListener("input", () => {
 let sessionState = "idle";
 let _cancelCountdown = null; // set while a countdown is running
 
-const startBtn = document.getElementById("start-btn");
-const stopBtn  = document.getElementById("stop-btn");
+function applySessionControls(state) {
+  if (state === "idle") {
+    els.startBtn.textContent = "Type it";
+    els.startBtn.classList.remove("pause-mode", "countdown-mode");
+    els.startBtn.disabled = false;
+    els.stopBtn.classList.remove("visible");
+    return;
+  }
+
+  if (state === "countdown") {
+    els.startBtn.textContent = "3";
+    els.startBtn.classList.remove("pause-mode");
+    els.startBtn.classList.add("countdown-mode");
+    els.startBtn.disabled = true;
+    els.stopBtn.classList.add("visible");
+    return;
+  }
+
+  if (state === "typing") {
+    els.startBtn.textContent = "Pause";
+    els.startBtn.classList.remove("countdown-mode");
+    els.startBtn.classList.add("pause-mode");
+    els.startBtn.disabled = false;
+    els.stopBtn.classList.add("visible");
+    return;
+  }
+
+  els.startBtn.textContent = "Resume";
+  els.startBtn.classList.remove("pause-mode", "countdown-mode");
+  els.startBtn.disabled = false;
+  els.stopBtn.classList.add("visible");
+}
 
 function setSessionState(state) {
   sessionState = state;
-  if (state === "idle") {
-    startBtn.textContent = "Type it";
-    startBtn.classList.remove("pause-mode", "countdown-mode");
-    startBtn.disabled = false;
-    stopBtn.classList.remove("visible");
-  } else if (state === "countdown") {
-    startBtn.textContent = "3";
-    startBtn.classList.remove("pause-mode");
-    startBtn.classList.add("countdown-mode");
-    startBtn.disabled = true;
-    stopBtn.classList.add("visible");
-  } else if (state === "typing") {
-    startBtn.textContent = "Pause";
-    startBtn.classList.remove("countdown-mode");
-    startBtn.classList.add("pause-mode");
-    startBtn.disabled = false;
-    stopBtn.classList.add("visible");
-  } else if (state === "paused") {
-    startBtn.textContent = "Resume";
-    startBtn.classList.remove("pause-mode", "countdown-mode");
-    startBtn.disabled = false;
-    stopBtn.classList.add("visible");
-  }
+  applySessionControls(state);
   // Persist — treat "countdown" as "idle" so reopening the sidebar mid-countdown
   // doesn't leave it stuck in an unrecoverable state.
   chrome.storage.local.set({
@@ -186,7 +242,7 @@ function runCountdown() {
         resolve(false); // finished naturally
         return;
       }
-      startBtn.textContent = String(count);
+      els.startBtn.textContent = String(count);
       timeoutId = setTimeout(tick, 1000);
     };
 
@@ -201,14 +257,45 @@ async function sendToActiveFrame(tabId, msg) {
   return chrome.tabs.sendMessage(tabId, msg, opts);
 }
 
-startBtn.addEventListener("click", () => {
+function getTypingRequest(text) {
+  const behavior = normalizeTypingBehavior({
+    naturalPauses: naturalPausesCheckbox.checked,
+    pauseEvery: els.pauseEvery.value,
+    pauseDuration: els.pauseDuration.value,
+    varyTimes: els.varyTimes.checked,
+    punctPauses: els.punctPauses.checked,
+    varSpeed: els.varSpeed.checked,
+    wordDifficulty: els.wordDifficulty.checked,
+    makeMistakes: mistakesCheckbox.checked,
+    mistakePause: els.mistakePause.value,
+    mistakeRate: els.mistakeRate.value,
+  });
+
+  return {
+    action: "type",
+    text,
+    delay: speedDelays[selectedSpeed],
+    naturalPauses: behavior.naturalPauses,
+    pauseEvery: behavior.pauseEveryMs,
+    pauseDuration: behavior.pauseDurationMs,
+    varyTimes: behavior.varyTimes,
+    punctPauses: behavior.punctPauses,
+    varSpeed: behavior.varSpeed,
+    wordDifficulty: behavior.wordDifficulty,
+    mistakes: behavior.mistakes,
+    mistakePause: behavior.mistakePauseMs,
+    mistakeRate: behavior.mistakeRateFraction,
+  };
+}
+
+els.startBtn.addEventListener("click", () => {
   if      (sessionState === "idle")   beginTyping();
   else if (sessionState === "typing") doPause();
   else if (sessionState === "paused") doResume();
 });
 
 async function beginTyping() {
-  const text = document.getElementById("text-input").value;
+  const text = els.textInput.value;
   const wordCount = countWords(text);
   if (!text || wordCount === 0) { setStatus("Enter some text first.", "error"); return; }
 
@@ -224,7 +311,7 @@ async function beginTyping() {
 
   updateProgress(0, _totalWords, false);
   setSessionState("typing");
-  chrome.storage.local.set({ totalWords: _totalWords }).catch(() => {});
+  persistProgressState(_totalWords, 0);
   setStatus("Typing…");
 
   try {
@@ -237,33 +324,10 @@ async function beginTyping() {
     // background's frame-scan fallback will still find any focused element.
     chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
-      files: ["content.js"],
+      files: ["typing-options.js", "content.js"],
     }).catch(() => {});
 
-    const naturalPauses = naturalPausesCheckbox.checked;
-    const pauseEvery    = Math.max(1, parseInt(document.getElementById("pause-every").value)    || 7);
-    const pauseDuration = Math.max(1, parseInt(document.getElementById("pause-duration").value) || 10);
-    const varyTimes     = document.getElementById("vary-times").checked;
-    const punctPauses   = document.getElementById("punct-pauses").checked;
-    const varSpeed      = document.getElementById("var-speed").checked;
-    const mistakes      = mistakesCheckbox.checked;
-    const mistakePause  = Math.max(1, parseInt(document.getElementById("mistake-pause").value)  || 5);
-    const mistakeRate   = Math.max(1, Math.min(50, parseInt(document.getElementById("mistake-rate").value) || 10));
-
-    const result = await sendToActiveFrame(tab.id, {
-      action: "type",
-      text,
-      delay:         speedDelays[selectedSpeed],
-      naturalPauses,
-      pauseEvery:    pauseEvery * 1000,
-      pauseDuration: pauseDuration * 1000,
-      varyTimes,
-      punctPauses,
-      varSpeed,
-      mistakes,
-      mistakePause:  mistakePause * 1000,
-      mistakeRate:   mistakeRate / 100,
-    });
+    const result = await sendToActiveFrame(tab.id, getTypingRequest(text));
 
     // Only update UI if the session wasn't already cancelled by the stop button
     if (sessionState !== "idle") {
@@ -274,13 +338,16 @@ async function beginTyping() {
           setStatus("Done.", "success");
         } else {
           setStatus("Stopped.");
+          clearProgressState();
         }
       } else if (result == null) {
         // Chrome resolves chrome.tabs.sendMessage with undefined when no frame
         // called sendResponse — meaning no frame had a focused typable element.
         setStatus("No field targeted. Click a text field on the page first.", "error");
+        clearProgressState();
       } else {
         setStatus(result?.error || "Something went wrong.", "error");
+        clearProgressState();
       }
     }
   } catch (err) {
@@ -297,6 +364,7 @@ async function beginTyping() {
       } else {
         setStatus("Could not reach the page. Try reloading it.", "error");
       }
+      clearProgressState();
     }
   }
 }
@@ -313,17 +381,17 @@ async function doResume() {
   chrome.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "resume" } }).catch(() => {});
 }
 
-stopBtn.addEventListener("click", () => {
+els.stopBtn.addEventListener("click", () => {
   if (sessionState === "countdown" && _cancelCountdown) {
     _cancelCountdown();
     setSessionState("idle");
     setStatus("Stopped.");
-    resetProgress();
+    clearProgressState();
     return;
   }
   setSessionState("idle");
   setStatus("Stopped.");
-  resetProgress();
+  clearProgressState();
   chrome.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "stop" } }).catch(() => {});
 });
 
@@ -332,11 +400,12 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === "typing-progress") {
     _wordsTyped = msg.wordsTyped;
     updateProgress(_wordsTyped, _totalWords, false);
+    persistProgressState(_totalWords, _wordsTyped);
   }
 
   if (msg.action === "targetUpdate") {
-    document.getElementById("target-value").textContent = msg.description;
-    document.getElementById("target-box").className = "target-box ready";
+    els.targetValue.textContent = msg.description;
+    els.targetBox.className = "target-box ready";
     // Persist so the target is shown correctly when sidebar is reopened
     chrome.storage.local.set({ targetDesc: msg.description, targetReady: true }).catch(() => {});
   }
@@ -357,20 +426,21 @@ chrome.runtime.onMessage.addListener((msg) => {
       if (!msg.stopped && !msg.error) {
         updateProgress(_totalWords, _totalWords, true);
         setStatus("Done.", "success");
+        persistProgressState(_totalWords, _totalWords);
       } else {
         setStatus(
           msg.error ? msg.error : "Stopped.",
           msg.error ? "error" : ""
         );
+        clearProgressState();
       }
     }
   }
 });
 
 function setStatus(msg, type = "") {
-  const el = document.getElementById("status");
-  el.textContent = msg;
-  el.className = type;
+  els.status.textContent = msg;
+  els.status.className = type;
   // Persist status alongside session state
   chrome.storage.local.set({ statusMsg: msg, statusType: type }).catch(() => {});
 }
@@ -381,7 +451,7 @@ function setStatus(msg, type = "") {
 (async function init() {
   const saved = await chrome.storage.local.get([
     // Settings
-    "textInput", "selectedSpeed", "varSpeed",
+    "textInput", "selectedSpeed", "varSpeed", "wordDifficulty",
     "naturalPauses", "pauseEvery", "pauseDuration", "punctPauses", "varyTimes",
     "makeMistakes", "mistakePause", "mistakeRate",
     // Session state
@@ -389,44 +459,39 @@ function setStatus(msg, type = "") {
     // Target field
     "targetDesc", "targetReady",
     // Progress
-    "totalWords",
+    "totalWords", "wordsTyped",
   ]).catch(() => ({}));
 
   // --- Restore settings ---
   if (saved.textInput !== undefined)
-    document.getElementById("text-input").value = saved.textInput;
+    els.textInput.value = saved.textInput;
 
   if (saved.selectedSpeed) {
-    selectedSpeed = saved.selectedSpeed;
-    document.querySelectorAll(".speed-btn").forEach((b) => {
-      b.classList.toggle("active", b.dataset.speed === selectedSpeed);
-    });
+    setActiveSpeed(saved.selectedSpeed);
   }
 
   if (saved.varSpeed !== undefined)
-    document.getElementById("var-speed").checked = saved.varSpeed;
+    els.varSpeed.checked = saved.varSpeed;
+  if (saved.wordDifficulty !== undefined)
+    els.wordDifficulty.checked = saved.wordDifficulty;
 
   if (saved.naturalPauses !== undefined) {
     naturalPausesCheckbox.checked = saved.naturalPauses;
-    const on = saved.naturalPauses;
-    naturalPausesRow.classList.toggle("expanded", on);
-    naturalPausesCollapsible.classList.toggle("expanded", on);
+    applyNaturalPausesSection(saved.naturalPauses);
   }
 
-  if (saved.pauseEvery     !== undefined) document.getElementById("pause-every").value     = saved.pauseEvery;
-  if (saved.pauseDuration  !== undefined) document.getElementById("pause-duration").value  = saved.pauseDuration;
-  if (saved.punctPauses    !== undefined) document.getElementById("punct-pauses").checked  = saved.punctPauses;
-  if (saved.varyTimes      !== undefined) document.getElementById("vary-times").checked    = saved.varyTimes;
+  if (saved.pauseEvery     !== undefined) els.pauseEvery.value = saved.pauseEvery;
+  if (saved.pauseDuration  !== undefined) els.pauseDuration.value = saved.pauseDuration;
+  if (saved.punctPauses    !== undefined) els.punctPauses.checked = saved.punctPauses;
+  if (saved.varyTimes      !== undefined) els.varyTimes.checked = saved.varyTimes;
 
   if (saved.makeMistakes !== undefined) {
     mistakesCheckbox.checked = saved.makeMistakes;
-    const on = saved.makeMistakes;
-    mistakesRow.classList.toggle("expanded", on);
-    mistakeCollapsible.classList.toggle("expanded", on);
+    applyMistakesSection(saved.makeMistakes);
   }
 
-  if (saved.mistakePause !== undefined) document.getElementById("mistake-pause").value = saved.mistakePause;
-  if (saved.mistakeRate  !== undefined) document.getElementById("mistake-rate").value  = saved.mistakeRate;
+  if (saved.mistakePause !== undefined) els.mistakePause.value = saved.mistakePause;
+  if (saved.mistakeRate  !== undefined) els.mistakeRate.value = saved.mistakeRate;
 
   // --- Restore session state (UI only — the content script is already running) ---
   // Verify with the content script that typing is actually still active before
@@ -442,35 +507,26 @@ function setStatus(msg, type = "") {
       sessionState = state;
       if (saved.totalWords) {
         _totalWords = saved.totalWords;
-        updateProgress(0, _totalWords, false); // show bar; wordsTyped corrects on next typing-progress message
+        _wordsTyped = saved.wordsTyped || 0;
+        updateProgress(_wordsTyped, _totalWords, false);
       }
-      if (state === "typing") {
-        startBtn.textContent = "Pause";
-        startBtn.classList.add("pause-mode");
-        stopBtn.classList.add("visible");
-      } else {
-        startBtn.textContent = "Resume";
-        startBtn.classList.remove("pause-mode");
-        stopBtn.classList.add("visible");
-      }
+      applySessionControls(state);
     } else {
       // Typing already finished — clear the stale state so next reopen is clean.
-      chrome.storage.local.set({ sessionState: "idle", statusMsg: "", statusType: "", totalWords: 0 }).catch(() => {});
+      chrome.storage.local.set({ sessionState: "idle", statusMsg: "", statusType: "", totalWords: 0, wordsTyped: 0 }).catch(() => {});
       saved.statusMsg = ""; // suppress the stale "Typing…" message below
     }
   }
 
   if (saved.statusMsg) {
-    const el = document.getElementById("status");
-    el.textContent = saved.statusMsg;
-    el.className   = saved.statusType || "";
+    els.status.textContent = saved.statusMsg;
+    els.status.className = saved.statusType || "";
   }
 
   // --- Restore target field ---
   if (saved.targetDesc) {
-    document.getElementById("target-value").textContent = saved.targetDesc;
-    document.getElementById("target-box").className =
-      saved.targetReady ? "target-box ready" : "target-box none";
+    els.targetValue.textContent = saved.targetDesc;
+    els.targetBox.className = saved.targetReady ? "target-box ready" : "target-box none";
   }
 
   // Inject content script into the active tab so it works on already-open tabs
@@ -481,7 +537,7 @@ function setStatus(msg, type = "") {
     if (activeTab?.id) {
       await chrome.scripting.executeScript({
         target: { tabId: activeTab.id, allFrames: true },
-        files: ["content.js"],
+        files: ["typing-options.js", "content.js"],
       });
     }
   } catch (_) {

@@ -299,6 +299,29 @@
       margin-top: 1px;
     }
 
+    .tempo-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .tempo-grid .option-row {
+      margin: 0;
+      padding: 8px 9px;
+      align-items: flex-start;
+    }
+
+    .tempo-grid .option-row label {
+      font-size: 11px;
+      line-height: 1.25;
+      min-width: 0;
+    }
+
+    .tempo-grid .option-row label span {
+      line-height: 1.25;
+    }
+
     .pause-fields {
       display: flex;
       flex-direction: column;
@@ -532,12 +555,21 @@
     <div class="speed-btn" data-speed="fast">Fast</div>
   </div>
 
-  <div class="option-row" style="margin-top: 8px;">
-    <input type="checkbox" id="var-speed">
-    <label for="var-speed">
-      Variable speed
-      <span>Subtly shifts typing tempo mid-text</span>
-    </label>
+  <div class="tempo-grid">
+    <div class="option-row">
+      <input type="checkbox" id="var-speed">
+      <label for="var-speed">
+        Variable speed
+        <span>Shifts tempo mid-text</span>
+      </label>
+    </div>
+    <div class="option-row">
+      <input type="checkbox" id="word-difficulty">
+      <label for="word-difficulty">
+        Word difficulty
+        <span>Slows tricky words slightly</span>
+      </label>
+    </div>
   </div>
 
   <div class="options-label">Behaviour</div>
@@ -655,6 +687,7 @@
     <div class="target-value" id="target-value">Click a text field on the page first</div>
   </div>
 
+  <script src="typing-options.js"></script>
   <script src="sidebar.js"></script>
 </body>
 </html>

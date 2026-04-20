@@ -1,4 +1,4 @@
-const speedDelays = { slow: 120, medium: 45, fast: 12 };
+const { speedDelays, normalizeTypingBehavior } = globalThis.TextToWriteConfig;
 let selectedSpeed = "medium";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,7 @@ function saveSettings() {
     pauseDuration: document.getElementById("pause-duration").value,
     punctPauses:   document.getElementById("punct-pauses").checked,
     varyTimes:     document.getElementById("vary-times").checked,
+    wordDifficulty: document.getElementById("word-difficulty").checked,
     makeMistakes:  mistakesCheckbox.checked,
     mistakePause:  document.getElementById("mistake-pause").value,
     mistakeRate:   document.getElementById("mistake-rate").value,
@@ -121,7 +122,7 @@ document.getElementById("text-input").addEventListener("input", () => {
 ["pause-every", "pause-duration", "mistake-pause", "mistake-rate"].forEach((id) => {
   document.getElementById(id).addEventListener("input", saveSettings);
 });
-["var-speed", "punct-pauses", "vary-times"].forEach((id) => {
+["var-speed", "word-difficulty", "punct-pauses", "vary-times"].forEach((id) => {
   document.getElementById(id).addEventListener("change", saveSettings);
 });
 
@@ -229,29 +230,33 @@ async function beginTyping() {
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
 
-    const naturalPauses = naturalPausesCheckbox.checked;
-    const pauseEvery    = Math.max(1, parseInt(document.getElementById("pause-every").value)    || 7);
-    const pauseDuration = Math.max(1, parseInt(document.getElementById("pause-duration").value) || 10);
-    const varyTimes     = document.getElementById("vary-times").checked;
-    const punctPauses   = document.getElementById("punct-pauses").checked;
-    const varSpeed      = document.getElementById("var-speed").checked;
-    const mistakes      = mistakesCheckbox.checked;
-    const mistakePause  = Math.max(1, parseInt(document.getElementById("mistake-pause").value)  || 5);
-    const mistakeRate   = Math.max(1, Math.min(50, parseInt(document.getElementById("mistake-rate").value) || 10));
+    const behavior = normalizeTypingBehavior({
+      naturalPauses: naturalPausesCheckbox.checked,
+      pauseEvery: document.getElementById("pause-every").value,
+      pauseDuration: document.getElementById("pause-duration").value,
+      varyTimes: document.getElementById("vary-times").checked,
+      punctPauses: document.getElementById("punct-pauses").checked,
+      varSpeed: document.getElementById("var-speed").checked,
+      wordDifficulty: document.getElementById("word-difficulty").checked,
+      makeMistakes: mistakesCheckbox.checked,
+      mistakePause: document.getElementById("mistake-pause").value,
+      mistakeRate: document.getElementById("mistake-rate").value,
+    });
 
     const result = await sendToActiveFrame(tab.id, {
       action: "type",
       text,
       delay:         speedDelays[selectedSpeed],
-      naturalPauses,
-      pauseEvery:    pauseEvery * 1000,
-      pauseDuration: pauseDuration * 1000,
-      varyTimes,
-      punctPauses,
-      varSpeed,
-      mistakes,
-      mistakePause:  mistakePause * 1000,
-      mistakeRate:   mistakeRate / 100,
+      naturalPauses: behavior.naturalPauses,
+      pauseEvery: behavior.pauseEveryMs,
+      pauseDuration: behavior.pauseDurationMs,
+      varyTimes: behavior.varyTimes,
+      punctPauses: behavior.punctPauses,
+      varSpeed: behavior.varSpeed,
+      wordDifficulty: behavior.wordDifficulty,
+      mistakes: behavior.mistakes,
+      mistakePause: behavior.mistakePauseMs,
+      mistakeRate: behavior.mistakeRateFraction,
     });
 
     // Only update UI if the session wasn't already cancelled by the stop button
@@ -360,7 +365,7 @@ function setStatus(msg, type = "") {
 (async function init() {
   const saved = await browser.storage.local.get([
     // Settings
-    "textInput", "selectedSpeed", "varSpeed",
+    "textInput", "selectedSpeed", "varSpeed", "wordDifficulty",
     "naturalPauses", "pauseEvery", "pauseDuration", "punctPauses", "varyTimes",
     "makeMistakes", "mistakePause", "mistakeRate",
     // Session state
@@ -382,6 +387,8 @@ function setStatus(msg, type = "") {
 
   if (saved.varSpeed !== undefined)
     document.getElementById("var-speed").checked = saved.varSpeed;
+  if (saved.wordDifficulty !== undefined)
+    document.getElementById("word-difficulty").checked = saved.wordDifficulty;
 
   if (saved.naturalPauses !== undefined) {
     naturalPausesCheckbox.checked = saved.naturalPauses;

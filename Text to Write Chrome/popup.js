@@ -1,69 +1,66 @@
-const speedDelays = {
-  slow: 120,
-  medium: 45,
-  fast: 12,
-};
+const { speedDelays, behaviorStorageKeys, normalizeTypingBehavior } = globalThis.TextToWriteConfig;
 
 let selectedSpeed = "medium";
+const speedButtons = [...document.querySelectorAll(".speed-btn")];
+const els = {
+  textInput: document.getElementById("text-input"),
+  startBtn: document.getElementById("start-btn"),
+  stopBtn: document.getElementById("stop-btn"),
+  status: document.getElementById("status"),
+};
+
+function setActiveSpeed(speed) {
+  selectedSpeed = speed;
+  speedButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.speed === speed);
+  });
+}
+
+async function getActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
 
 // Speed selector
-document.querySelectorAll(".speed-btn").forEach((btn) => {
+speedButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".speed-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    selectedSpeed = btn.dataset.speed;
+    setActiveSpeed(btn.dataset.speed);
   });
 });
 
-const startBtn = document.getElementById("start-btn");
-const stopBtn = document.getElementById("stop-btn");
-
-startBtn.addEventListener("click", async () => {
-  const text = document.getElementById("text-input").value;
+els.startBtn.addEventListener("click", async () => {
+  const text = els.textInput.value;
 
   if (!text) {
     setStatus("Enter some text first.", "error");
     return;
   }
 
-  startBtn.disabled = true;
-  stopBtn.classList.add("visible");
+  els.startBtn.disabled = true;
+  els.stopBtn.classList.add("visible");
   setStatus("Typing…");
 
-  const delay = speedDelays[selectedSpeed];
-
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getActiveTab();
 
     // Read saved behavior settings from storage (shared with sidebar)
-    const saved = await chrome.storage.local.get([
-      "naturalPauses", "pauseEvery", "pauseDuration", "varyTimes",
-      "punctPauses", "varSpeed", "makeMistakes", "mistakePause", "mistakeRate",
-    ]).catch(() => ({}));
-
-    const naturalPauses = saved.naturalPauses ?? false;
-    const pauseEvery    = Math.max(1, parseInt(saved.pauseEvery)    || 7);
-    const pauseDuration = Math.max(1, parseInt(saved.pauseDuration) || 10);
-    const varyTimes     = saved.varyTimes    ?? false;
-    const punctPauses   = saved.punctPauses  ?? false;
-    const varSpeed      = saved.varSpeed     ?? false;
-    const mistakes      = saved.makeMistakes ?? false;
-    const mistakePause  = Math.max(1, parseInt(saved.mistakePause) || 5);
-    const mistakeRate   = Math.max(1, Math.min(50, parseInt(saved.mistakeRate) || 10));
+    const saved = await chrome.storage.local.get(behaviorStorageKeys).catch(() => ({}));
+    const behavior = normalizeTypingBehavior(saved);
 
     const result = await chrome.tabs.sendMessage(tab.id, {
       action: "type",
       text,
-      delay,
-      naturalPauses,
-      pauseEvery:    pauseEvery * 1000,
-      pauseDuration: pauseDuration * 1000,
-      varyTimes,
-      punctPauses,
-      varSpeed,
-      mistakes,
-      mistakePause:  mistakePause * 1000,
-      mistakeRate:   mistakeRate / 100,
+      delay: speedDelays[selectedSpeed],
+      naturalPauses: behavior.naturalPauses,
+      pauseEvery: behavior.pauseEveryMs,
+      pauseDuration: behavior.pauseDurationMs,
+      varyTimes: behavior.varyTimes,
+      punctPauses: behavior.punctPauses,
+      varSpeed: behavior.varSpeed,
+      wordDifficulty: behavior.wordDifficulty,
+      mistakes: behavior.mistakes,
+      mistakePause: behavior.mistakePauseMs,
+      mistakeRate: behavior.mistakeRateFraction,
     });
 
     if (result && result.success) {
@@ -75,22 +72,21 @@ startBtn.addEventListener("click", async () => {
     setStatus("Could not reach the page. Try reloading it.", "error");
   }
 
-  startBtn.disabled = false;
-  stopBtn.classList.remove("visible");
+  els.startBtn.disabled = false;
+  els.stopBtn.classList.remove("visible");
 });
 
-stopBtn.addEventListener("click", async () => {
+els.stopBtn.addEventListener("click", async () => {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getActiveTab();
     await chrome.tabs.sendMessage(tab.id, { action: "stop" });
   } catch (_) {}
-  stopBtn.classList.remove("visible");
-  startBtn.disabled = false;
+  els.stopBtn.classList.remove("visible");
+  els.startBtn.disabled = false;
   setStatus("Stopped.");
 });
 
 function setStatus(msg, type = "") {
-  const el = document.getElementById("status");
-  el.textContent = msg;
-  el.className = type;
+  els.status.textContent = msg;
+  els.status.className = type;
 }

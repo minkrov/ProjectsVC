@@ -222,6 +222,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     varyTimes:     message.varyTimes,
     punctPauses:   message.punctPauses,
     varSpeed:      message.varSpeed,
+    wordDifficulty: message.wordDifficulty,
     mistakes:      message.mistakes,
     mistakePause:  message.mistakePause,
     mistakeRate:   message.mistakeRate,
@@ -250,6 +251,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // Core typing loop
 // ---------------------------------------------------------------------------
 async function typeText(el, text, delay, opts) {
+  const typingConfig = globalThis.TextToWriteConfig;
   const tokens = text.match(/[a-zA-Z']+|[^a-zA-Z']+/g) || [];
   let wordsTyped = 0;
 
@@ -272,7 +274,9 @@ async function typeText(el, text, delay, opts) {
 
     const isWordToken = /^[a-zA-Z']/.test(token); // for progress counting
     const isWord      = /^[a-zA-Z']{3,}$/.test(token); // for mistake generation
-    const doMistake   = opts.mistakes && isWord && Math.random() < opts.mistakeRate;
+    const wordMult    = opts.wordDifficulty ? typingConfig.wordDifficultyMultiplier(token) : 1;
+    const mistakeRate = typingConfig.adjustedMistakeRate(opts.mistakeRate, token, delay);
+    const doMistake   = opts.mistakes && isWord && Math.random() < mistakeRate;
 
     if (doMistake) {
       const misspelled = generateMistake(token);
@@ -281,7 +285,7 @@ async function typeText(el, text, delay, opts) {
       for (const char of misspelled) {
         if (await checkStop()) return true;
         await typeCharacter(el, char);
-        if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed))) return true;
+        if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
       }
 
@@ -302,7 +306,7 @@ async function typeText(el, text, delay, opts) {
       for (const char of token) {
         if (await checkStop()) return true;
         await typeCharacter(el, char);
-        if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed))) return true;
+        if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
       }
 
@@ -336,7 +340,7 @@ async function typeText(el, text, delay, opts) {
           }
         }
 
-        const d = charDelay(delay, speedMult, opts.varSpeed);
+        const d = charDelay(delay, speedMult, opts.varSpeed, wordMult);
         if (await typeSleep(d)) return true;
         elapsed += d;
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
@@ -359,8 +363,8 @@ async function typeText(el, text, delay, opts) {
 // ---------------------------------------------------------------------------
 // Speed helpers
 // ---------------------------------------------------------------------------
-function charDelay(base, mult, varSpeed) {
-  const effective = varSpeed ? base * mult : base;
+function charDelay(base, mult, varSpeed, wordMult = 1) {
+  const effective = (varSpeed ? base * mult : base) * wordMult;
   return effective + jitter(effective * 0.3);
 }
 
@@ -379,35 +383,8 @@ function tickSpeed(mult, countdown, varSpeed) {
 // ---------------------------------------------------------------------------
 // Mistake generator — realistic QWERTY typos
 // ---------------------------------------------------------------------------
-const qwertyNeighbors = {
-  a:'sqwz', b:'vghn', c:'xdfv', d:'serfcx', e:'wsdr', f:'drtgvc',
-  g:'ftyhbv', h:'gyujnb', i:'ujko', j:'huikmnb', k:'jiolm', l:'kop',
-  m:'njk', n:'bhjm', o:'iklp', p:'ol', q:'wa', r:'edft',
-  s:'awedxz', t:'rfgy', u:'yhji', v:'cfgb', w:'qase', x:'zsdc',
-  y:'tghu', z:'asx',
-};
-
 function generateMistake(word) {
-  const type = Math.floor(Math.random() * 3);
-  if (type === 0) {
-    const pos       = 1 + Math.floor(Math.random() * (word.length - 1));
-    const key       = word[pos].toLowerCase();
-    const neighbors = qwertyNeighbors[key];
-    if (!neighbors) return doubleLetter(word);
-    const wrong       = neighbors[Math.floor(Math.random() * neighbors.length)];
-    const replacement = /[A-Z]/.test(word[pos]) ? wrong.toUpperCase() : wrong;
-    return word.slice(0, pos) + replacement + word.slice(pos + 1);
-  }
-  if (type === 1) {
-    const pos = Math.floor(Math.random() * (word.length - 1));
-    return word.slice(0, pos) + word[pos + 1] + word[pos] + word.slice(pos + 2);
-  }
-  return doubleLetter(word);
-}
-
-function doubleLetter(word) {
-  const pos = Math.floor(Math.random() * word.length);
-  return word.slice(0, pos) + word[pos] + word.slice(pos);
+  return globalThis.TextToWriteConfig.generateMistake(word);
 }
 
 // ---------------------------------------------------------------------------
