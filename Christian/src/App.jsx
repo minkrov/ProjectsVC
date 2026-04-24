@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { dailyVerses } from "./data/dailyVerses";
 
 const STORAGE_KEY = "one-body-posts-v1";
 const MAX_POST_LENGTH = 280;
@@ -10,6 +11,39 @@ const sections = [
   { label: "Bible Study", soon: true },
   { label: "Common Ground", soon: true },
   { label: "Profile", soon: true },
+];
+
+const glassLayouts = [
+  {
+    gold: { top: "13%", left: "11%", rotation: "43deg", scale: 1.02 },
+    teal: { top: "17%", right: "10%", rotation: "45deg", scale: 1.06 },
+    rose: { bottom: "14%", right: "15%", rotation: "44deg", scale: 0.98 },
+  },
+  {
+    gold: { top: "16%", right: "12%", rotation: "46deg", scale: 1.04 },
+    teal: { bottom: "14%", left: "10%", rotation: "42deg", scale: 1.04 },
+    rose: { bottom: "16%", right: "12%", rotation: "43deg", scale: 0.95 },
+  },
+  {
+    gold: { top: "12%", left: "17%", rotation: "41deg", scale: 0.96 },
+    teal: { top: "23%", right: "8%", rotation: "44deg", scale: 1.08 },
+    rose: { bottom: "12%", right: "18%", rotation: "46deg", scale: 1 },
+  },
+  {
+    gold: { top: "19%", right: "14%", rotation: "44deg", scale: 1 },
+    teal: { bottom: "15%", left: "12%", rotation: "47deg", scale: 1.06 },
+    rose: { bottom: "18%", right: "10%", rotation: "42deg", scale: 0.96 },
+  },
+  {
+    gold: { top: "15%", left: "8%", rotation: "45deg", scale: 1.05 },
+    teal: { bottom: "17%", left: "16%", rotation: "43deg", scale: 0.98 },
+    rose: { bottom: "14%", right: "10%", rotation: "45deg", scale: 1.02 },
+  },
+  {
+    gold: { top: "18%", right: "9%", rotation: "42deg", scale: 0.98 },
+    teal: { top: "14%", left: "10%", rotation: "46deg", scale: 1.03 },
+    rose: { bottom: "15%", right: "18%", rotation: "44deg", scale: 0.97 },
+  },
 ];
 
 const readStoredPosts = () => {
@@ -34,8 +68,29 @@ const formatPostTime = (createdAt) =>
     minute: "2-digit",
   }).format(new Date(createdAt));
 
+const DAILY_VERSE_REFERENCE_YEAR = 2025;
+
+const getDailyVerseIndex = (date = new Date()) => {
+  const month = date.getMonth();
+  const monthLength = new Date(DAILY_VERSE_REFERENCE_YEAR, month + 1, 0).getDate();
+  const clampedDay = Math.min(date.getDate(), monthLength);
+
+  return Math.floor(
+    (Date.UTC(DAILY_VERSE_REFERENCE_YEAR, month, clampedDay) -
+      Date.UTC(DAILY_VERSE_REFERENCE_YEAR, 0, 1)) /
+      86400000,
+  );
+};
+
+const getDailyVerse = (date = new Date()) =>
+  dailyVerses[getDailyVerseIndex(date) % dailyVerses.length];
+
 function Onboarding({ onContinue }) {
   const [canContinue, setCanContinue] = useState(false);
+  const glassLayout = useMemo(
+    () => glassLayouts[Math.floor(Math.random() * glassLayouts.length)],
+    [],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => setCanContinue(true), 2000);
@@ -47,9 +102,39 @@ function Onboarding({ onContinue }) {
       <div className="chapel-sky" aria-hidden="true">
         <span className="sunbeam sunbeam-one" />
         <span className="sunbeam sunbeam-two" />
-        <span className="glass-piece glass-piece-gold" />
-        <span className="glass-piece glass-piece-teal" />
-        <span className="glass-piece glass-piece-rose" />
+        <span
+          className="glass-piece glass-piece-gold"
+          style={{
+            top: glassLayout.gold.top,
+            left: glassLayout.gold.left,
+            right: glassLayout.gold.right,
+            bottom: glassLayout.gold.bottom,
+            "--piece-rotation": glassLayout.gold.rotation,
+            "--piece-scale": glassLayout.gold.scale,
+          }}
+        />
+        <span
+          className="glass-piece glass-piece-teal"
+          style={{
+            top: glassLayout.teal.top,
+            left: glassLayout.teal.left,
+            right: glassLayout.teal.right,
+            bottom: glassLayout.teal.bottom,
+            "--piece-rotation": glassLayout.teal.rotation,
+            "--piece-scale": glassLayout.teal.scale,
+          }}
+        />
+        <span
+          className="glass-piece glass-piece-rose"
+          style={{
+            top: glassLayout.rose.top,
+            left: glassLayout.rose.left,
+            right: glassLayout.rose.right,
+            bottom: glassLayout.rose.bottom,
+            "--piece-rotation": glassLayout.rose.rotation,
+            "--piece-scale": glassLayout.rose.scale,
+          }}
+        />
       </div>
 
       <section className="welcome-panel">
@@ -62,6 +147,7 @@ function Onboarding({ onContinue }) {
 
         <div className="stained-window" aria-hidden="true">
           <span className="window-arch" />
+          <span className="window-divider" />
           <span className="window-cross" />
         </div>
       </section>
@@ -79,6 +165,8 @@ function Onboarding({ onContinue }) {
 }
 
 function Drawer({ isOpen, onClose }) {
+  const dailyVerse = getDailyVerse();
+
   return (
     <>
       <button
@@ -112,6 +200,13 @@ function Drawer({ isOpen, onClose }) {
             </button>
           ))}
         </nav>
+
+        <section className="daily-verse-card" aria-label="Daily Bible verse">
+          <div className="drawer-cross" aria-hidden="true" />
+          <p>Daily Bible Verse</p>
+          <blockquote>{dailyVerse.text}</blockquote>
+          <cite>{dailyVerse.reference} · WEB</cite>
+        </section>
       </aside>
     </>
   );
