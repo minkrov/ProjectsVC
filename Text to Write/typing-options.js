@@ -5,19 +5,6 @@
     fast: 12,
   });
 
-  const behaviorStorageKeys = Object.freeze([
-    "naturalPauses",
-    "pauseEvery",
-    "pauseDuration",
-    "varyTimes",
-    "punctPauses",
-    "varSpeed",
-    "wordDifficulty",
-    "makeMistakes",
-    "mistakePause",
-    "mistakeRate",
-  ]);
-
   const easyWords = new Set([
     "a", "an", "and", "as", "at", "be", "but", "by", "do", "for", "go",
     "he", "her", "his", "i", "if", "in", "is", "it", "me", "my", "no",
@@ -180,7 +167,6 @@
 
   globalThis.TextToWriteConfig = Object.freeze({
     speedDelays,
-    behaviorStorageKeys,
     normalizeTypingBehavior,
     wordDifficultyMultiplier,
     adjustedMistakeRate,

@@ -61,6 +61,8 @@ function saveSettings() {
     makeMistakes:  mistakesCheckbox.checked,
     mistakePause:  document.getElementById("mistake-pause").value,
     mistakeRate:   document.getElementById("mistake-rate").value,
+    paragraphPause: document.getElementById("paragraph-pause").checked,
+    selfInterrupt:  document.getElementById("self-interrupt").checked,
   }).catch(() => {});
 }
 
@@ -122,7 +124,8 @@ document.getElementById("text-input").addEventListener("input", () => {
 ["pause-every", "pause-duration", "mistake-pause", "mistake-rate"].forEach((id) => {
   document.getElementById(id).addEventListener("input", saveSettings);
 });
-["var-speed", "word-difficulty", "punct-pauses", "vary-times"].forEach((id) => {
+["var-speed", "word-difficulty", "punct-pauses", "vary-times",
+ "paragraph-pause", "self-interrupt"].forEach((id) => {
   document.getElementById(id).addEventListener("change", saveSettings);
 });
 
@@ -225,8 +228,8 @@ startBtn.addEventListener("click", () => {
 
 async function beginTyping() {
   const text = document.getElementById("text-input").value;
+  if (!text.trim()) { setStatus("Enter some text first.", "error"); return; }
   const wordCount = countWords(text);
-  if (!text || wordCount === 0) { setStatus("Enter some text first.", "error"); return; }
 
   _totalWords = wordCount;
   _wordsTyped = 0;
@@ -272,6 +275,10 @@ async function beginTyping() {
       mistakes: behavior.mistakes,
       mistakePause: behavior.mistakePauseMs,
       mistakeRate: behavior.mistakeRateFraction,
+      paragraphPause: document.getElementById("paragraph-pause").checked,
+      wordHesitation: true,
+      sentenceStart:  true,
+      selfInterrupt:  document.getElementById("self-interrupt").checked,
     };
 
     const startAt = Date.now() + 3000;
@@ -286,7 +293,7 @@ async function beginTyping() {
     if (cancelled || sessionState === "idle") return;
 
     if (sessionState === "countdown") {
-      updateProgress(0, _totalWords, false);
+      if (_totalWords > 0) updateProgress(0, _totalWords, false);
       setSessionState("typing");
       chrome.storage.local.set({ totalWords: _totalWords }).catch(() => {});
       setStatus("Typing…");
@@ -318,7 +325,7 @@ async function doPause() {
 async function doResume() {
   setSessionState("typing");
   setStatus("Typing…");
-  chrome.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "resume" } }).catch(() => {});
+  chrome.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "resume", delay: speedDelays[selectedSpeed] } }).catch(() => {});
 }
 
 stopBtn.addEventListener("click", () => {
@@ -340,7 +347,10 @@ stopBtn.addEventListener("click", () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === "typing-progress") {
     _wordsTyped = msg.wordsTyped;
-    updateProgress(_wordsTyped, _totalWords, false);
+    if (_totalWords > 0) {
+      updateProgress(_wordsTyped, _totalWords, false);
+      chrome.storage.local.set({ wordsTyped: _wordsTyped }).catch(() => {});
+    }
   }
 
   if (msg.action === "targetUpdate") {
@@ -364,7 +374,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (sessionState !== "idle") {
       setSessionState("idle");
       if (!msg.stopped && !msg.error) {
-        updateProgress(_totalWords, _totalWords, true);
+        if (_totalWords > 0) updateProgress(_totalWords, _totalWords, true);
         setStatus("Done.", "success");
       } else {
         setStatus(
@@ -387,17 +397,19 @@ function setStatus(msg, type = "") {
 // Startup: restore all state from storage
 // ---------------------------------------------------------------------------
 (async function init() {
+  document.body.classList.add('no-transition');
   const saved = await chrome.storage.local.get([
     // Settings
     "textInput", "selectedSpeed", "varSpeed", "wordDifficulty",
     "naturalPauses", "pauseEvery", "pauseDuration", "punctPauses", "varyTimes",
     "makeMistakes", "mistakePause", "mistakeRate",
+    "paragraphPause", "selfInterrupt",
     // Session state
     "sessionState", "statusMsg", "statusType",
     // Target field
     "targetDesc", "targetReady",
     // Progress
-    "totalWords",
+    "totalWords", "wordsTyped",
   ]).catch(() => ({}));
 
   // --- Restore settings ---
@@ -438,6 +450,9 @@ function setStatus(msg, type = "") {
   if (saved.mistakePause !== undefined) document.getElementById("mistake-pause").value = saved.mistakePause;
   if (saved.mistakeRate  !== undefined) document.getElementById("mistake-rate").value  = saved.mistakeRate;
 
+  if (saved.paragraphPause !== undefined) document.getElementById("paragraph-pause").checked = saved.paragraphPause;
+  if (saved.selfInterrupt  !== undefined) document.getElementById("self-interrupt").checked  = saved.selfInterrupt;
+
   // --- Restore session state (UI only — the content script is already running) ---
   // Always ask the live runtime first. The Arc overlay can be closed while a
   // countdown or typing session continues in the background, so saved UI state
@@ -447,13 +462,14 @@ function setStatus(msg, type = "") {
 
   if (saved.totalWords) {
     _totalWords = saved.totalWords;
+    _wordsTyped = saved.wordsTyped || 0;
   }
 
   if (liveState.active) {
     const state = liveState.paused ? "paused" : "typing";
     sessionState = state;
-    if (_totalWords) {
-      updateProgress(0, _totalWords, false);
+    if (_totalWords > 0) {
+      updateProgress(_wordsTyped, _totalWords, false);
     }
     if (state === "typing") {
       startBtn.textContent = "Pause";
@@ -473,7 +489,7 @@ function setStatus(msg, type = "") {
     setStatus("Starting…");
     runCountdown(liveState.startAt).then((cancelled) => {
       if (!cancelled && sessionState === "countdown") {
-        updateProgress(0, _totalWords, false);
+        if (_totalWords > 0) updateProgress(0, _totalWords, false);
         setSessionState("typing");
         setStatus("Typing…");
       }
@@ -520,4 +536,5 @@ function setStatus(msg, type = "") {
   }
 
   isInitializing = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('no-transition')));
 })();

@@ -19,6 +19,7 @@ let _lastProgressSent = 0;
 // ---------------------------------------------------------------------------
 let _timers  = new Map();
 let _timerId = 0;
+let _activeDelay = 0; // updated when typing starts or when speed changes during a pause
 
 // ---------------------------------------------------------------------------
 // Blur-pause — auto-pauses when the target element genuinely loses focus.
@@ -163,6 +164,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (message.action === "resume") {
+    if (message.delay !== undefined) _activeDelay = message.delay;
     pausedTyping = false;
     cancelScheduledPause(); // drop any pending auto-pause from before the break
     if (_blurTarget) _blurTarget.focus();
@@ -205,9 +207,11 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   stopTyping   = false;
   pausedTyping = false;
+  _activeDelay = message.delay;
   cancelScheduledPause();
   _timers.clear(); // discard any stale callbacks from a previous session
-  _timerId = 0;
+  // _timerId is intentionally NOT reset — monotonically increasing IDs prevent
+  // stale background timers from a previous session colliding with new ones.
   _offsetParentCheckedAt = 0; // reset offsetParent cache for new session
   _lastProgressSent      = 0; // reset progress throttle for new session
   el.focus();
@@ -226,6 +230,10 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     mistakes:      message.mistakes,
     mistakePause:  message.mistakePause,
     mistakeRate:   message.mistakeRate,
+    paragraphPause: message.paragraphPause,
+    wordHesitation: message.wordHesitation,
+    sentenceStart:  message.sentenceStart,
+    selfInterrupt:  message.selfInterrupt,
   };
 
   typeText(el, message.text, message.delay, opts)
@@ -269,7 +277,12 @@ async function typeText(el, text, delay, opts) {
   let speedMult            = 1.0;
   let charsUntilSpeedShift = randomInt(20, 50);
 
+  // Sentence / paragraph state
+  let afterSentenceEnd = true;  // true at text start = sentence-start slowdown for first word
+  let afterNewline     = false; // true after a non-word token that contains \n
+
   for (const token of tokens) {
+    delay = _activeDelay; // pick up any speed change made during a pause
     if (await checkStop()) return true;
 
     const isWordToken = /^[a-zA-Z']/.test(token); // for progress counting
@@ -277,6 +290,24 @@ async function typeText(el, text, delay, opts) {
     const wordMult    = opts.wordDifficulty ? typingConfig.wordDifficultyMultiplier(token) : 1;
     const mistakeRate = typingConfig.adjustedMistakeRate(opts.mistakeRate, token, delay);
     const doMistake   = opts.mistakes && isWord && Math.random() < mistakeRate;
+
+    // Paragraph hesitation — before first word after a newline
+    if (isWordToken && afterNewline && opts.paragraphPause) {
+      if (await interruptibleSleep(randomBetween(1000, 3000))) return true;
+    }
+
+    // Word hesitation — before rare/long words
+    if (isWordToken && opts.wordHesitation && typingConfig.wordDifficultyMultiplier(token) >= 1.2) {
+      if (await interruptibleSleep(randomBetween(500, 2500))) return true;
+    }
+
+    // Sentence-start slowdown multiplier
+    const sentenceMult = (afterSentenceEnd && isWordToken && opts.sentenceStart)
+      ? (1.7 + Math.random() * 0.3) : 1.0;
+
+    // Self-interrupt: eligible words only, not already a typo word
+    const doSelfInterrupt = opts.selfInterrupt && isWordToken && isWord
+      && token.length >= 4 && !doMistake && Math.random() < 0.015;
 
     if (doMistake) {
       const misspelled = generateMistake(token);
@@ -318,6 +349,7 @@ async function typeText(el, text, delay, opts) {
       }
 
     } else {
+      let charIndex = 0;
       for (const char of token) {
         if (await checkStop()) return true;
 
@@ -328,7 +360,40 @@ async function typeText(el, text, delay, opts) {
           timeUntilPause = applyVariance(opts.pauseEvery, opts.varyTimes);
         }
 
-        await typeCharacter(el, char);
+        // Capitalization slip — first char of first word after sentence end
+        const doCapSlip = opts.mistakes && afterSentenceEnd && charIndex === 0
+          && isWordToken && /[A-Z]/.test(char) && Math.random() < 0.12;
+
+        if (doCapSlip) {
+          await typeCharacter(el, char.toLowerCase());
+          if (await typeSleep(charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult))) return true;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+          if (await interruptibleSleep(randomBetween(200, 600))) return true;
+          await typeBackspace(el);
+          if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
+          await typeCharacter(el, char);
+          const dCap = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult);
+          if (await typeSleep(dCap)) return true;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+          elapsed += dCap;
+        } else {
+          await typeCharacter(el, char);
+
+          // Double-letter slip
+          const doDoubleSlip = opts.mistakes && /[a-zA-Z]/.test(char) && Math.random() < 0.015;
+
+          const d = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult);
+          if (await typeSleep(d)) return true;
+          elapsed += d;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+
+          if (doDoubleSlip) {
+            await typeCharacter(el, char);
+            if (await interruptibleSleep(randomBetween(100, 350))) return true;
+            await typeBackspace(el);
+            if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
+          }
+        }
 
         // Punctuation pause — after typing a punctuation char
         if (opts.punctPauses && '.,:;!?'.includes(char)) {
@@ -340,10 +405,27 @@ async function typeText(el, text, delay, opts) {
           }
         }
 
-        const d = charDelay(delay, speedMult, opts.varSpeed, wordMult);
-        if (await typeSleep(d)) return true;
-        elapsed += d;
-        ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+        charIndex++;
+      }
+
+      // Self-interrupt block — after char loop
+      if (doSelfInterrupt) {
+        if (await interruptibleSleep(randomBetween(400, 1200))) return true;
+        const wordChars = [...token];
+        for (let i = 0; i < wordChars.length; i++) {
+          if (await checkStop()) return true;
+          await typeBackspace(el);
+          if (await typeSleep(charDelay(delay * 0.85, 1.0, false, 1.0))) return true;
+        }
+        if (await interruptibleSleep(randomBetween(300, 800))) return true;
+        for (const ch of token) {
+          if (await checkStop()) return true;
+          await typeCharacter(el, ch);
+          const d = charDelay(delay, speedMult, opts.varSpeed, wordMult);
+          if (await typeSleep(d)) return true;
+          elapsed += d;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+        }
       }
 
       if (isWordToken) {
@@ -354,6 +436,15 @@ async function typeText(el, text, delay, opts) {
           browser.runtime.sendMessage({ action: "typing-progress", wordsTyped }).catch(() => {});
         }
       }
+    }
+
+    // Update sentence/paragraph state for next token
+    if (isWordToken) {
+      afterSentenceEnd = false;
+      afterNewline     = false;
+    } else {
+      afterSentenceEnd = /[.!?]/.test(token) || token.includes('\n');
+      afterNewline     = token.includes('\n');
     }
   }
 

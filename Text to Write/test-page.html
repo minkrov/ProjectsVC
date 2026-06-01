@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Text to Write — Test Page</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      min-height: 100vh;
+      padding: 40px 24px;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #89b4fa;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: #6c7086;
+      margin-bottom: 36px;
+    }
+
+    .steps {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 40px;
+      max-width: 680px;
+    }
+
+    .steps h2 {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #a6adc8;
+      margin-bottom: 14px;
+    }
+
+    .steps ol {
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .steps li {
+      font-size: 13px;
+      color: #cdd6f4;
+      line-height: 1.5;
+    }
+
+    .steps code {
+      background: #313244;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 12px;
+      color: #cba6f7;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+      max-width: 1000px;
+    }
+
+    .card {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .card h3 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6c7086;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      color: #585b70;
+      margin-bottom: 4px;
+      margin-top: 12px;
+    }
+
+    label:first-of-type { margin-top: 0; }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="search"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #cdd6f4;
+      font-size: 13px;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+      resize: vertical;
+    }
+
+    input[type="text"]:focus,
+    input[type="email"]:focus,
+    input[type="search"]:focus,
+    input[type="password"]:focus,
+    textarea:focus {
+      border-color: #89b4fa;
+    }
+
+    textarea { height: 120px; }
+
+    .ce-box {
+      width: 100%;
+      min-height: 100px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #cdd6f4;
+      font-size: 13px;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .ce-box:focus { border-color: #89b4fa; }
+
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 2px 7px;
+      border-radius: 999px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .badge-green { background: #a6e3a120; color: #a6e3a1; }
+    .badge-blue  { background: #89b4fa20; color: #89b4fa; }
+  </style>
+</head>
+<body>
+
+  <h1>Text to Write — Test Page</h1>
+  <p class="subtitle">Use this page to verify the extension after loading it in Firefox.</p>
+
+  <div class="steps">
+    <h2>How to load the extension</h2>
+    <ol>
+      <li>Open Firefox and navigate to <code>about:debugging</code></li>
+      <li>Click <strong>This Firefox</strong> in the left sidebar</li>
+      <li>Click <strong>Load Temporary Add-on…</strong></li>
+      <li>Navigate to this folder and select <code>manifest.json</code></li>
+      <li>The extension loads — click the toolbar icon to open the sidebar</li>
+      <li>Click any field below, paste your test text into the sidebar, and press Type it</li>
+    </ol>
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <h3>Plain textarea <span class="badge badge-green">Primary target</span></h3>
+      <textarea placeholder="Click here, then use the sidebar to type…"></textarea>
+    </div>
+
+    <div class="card">
+      <h3>Text input</h3>
+      <label>Single-line input</label>
+      <input type="text" placeholder="Click here, then type via sidebar…">
+      <label>Email input</label>
+      <input type="email" placeholder="user@example.com">
+      <label>Search input</label>
+      <input type="search" placeholder="Search…">
+    </div>
+
+    <div class="card">
+      <h3>ContentEditable <span class="badge badge-blue">Rich editor</span></h3>
+      <div class="ce-box" contenteditable="true" spellcheck="false">Click here to focus, then use the sidebar…</div>
+    </div>
+
+    <div class="card">
+      <h3>Long-form textarea</h3>
+      <textarea style="height:200px;" placeholder="Good for testing natural pauses, paragraph hesitation, and progress bar on longer text…"></textarea>
+    </div>
+
+    <div class="card">
+      <h3>Password field</h3>
+      <label>Password input (typing works, text is hidden)</label>
+      <input type="password" placeholder="••••••••">
+    </div>
+
+    <div class="card">
+      <h3>Second contentEditable</h3>
+      <div class="ce-box" contenteditable="true" spellcheck="false">Second editable area — useful for testing multi-frame or multi-field scenarios…</div>
+    </div>
+
+  </div>
+
+</body>
+</html>

@@ -20,6 +20,8 @@ const els = {
   varyTimes: document.getElementById("vary-times"),
   mistakePause: document.getElementById("mistake-pause"),
   mistakeRate: document.getElementById("mistake-rate"),
+  paragraphPause: document.getElementById("paragraph-pause"),
+  selfInterrupt:  document.getElementById("self-interrupt"),
 };
 
 // ---------------------------------------------------------------------------
@@ -87,6 +89,8 @@ function saveSettings() {
     makeMistakes:  mistakesCheckbox.checked,
     mistakePause: els.mistakePause.value,
     mistakeRate: els.mistakeRate.value,
+    paragraphPause: els.paragraphPause.checked,
+    selfInterrupt:  els.selfInterrupt.checked,
   }).catch(() => {});
 }
 
@@ -169,7 +173,8 @@ els.textInput.addEventListener("input", () => {
 [els.pauseEvery, els.pauseDuration, els.mistakePause, els.mistakeRate].forEach((input) => {
   input.addEventListener("input", saveSettings);
 });
-[els.varSpeed, els.wordDifficulty, els.punctPauses, els.varyTimes].forEach((input) => {
+[els.varSpeed, els.wordDifficulty, els.punctPauses, els.varyTimes,
+ els.paragraphPause, els.selfInterrupt].forEach((input) => {
   input.addEventListener("change", saveSettings);
 });
 
@@ -285,6 +290,10 @@ function getTypingRequest(text) {
     mistakes: behavior.mistakes,
     mistakePause: behavior.mistakePauseMs,
     mistakeRate: behavior.mistakeRateFraction,
+    paragraphPause: els.paragraphPause.checked,
+    wordHesitation: true,
+    sentenceStart:  true,
+    selfInterrupt:  els.selfInterrupt.checked,
   };
 }
 
@@ -296,8 +305,8 @@ els.startBtn.addEventListener("click", () => {
 
 async function beginTyping() {
   const text = els.textInput.value;
+  if (!text.trim()) { setStatus("Enter some text first.", "error"); return; }
   const wordCount = countWords(text);
-  if (!text || wordCount === 0) { setStatus("Enter some text first.", "error"); return; }
 
   _totalWords = wordCount;
   _wordsTyped = 0;
@@ -309,7 +318,7 @@ async function beginTyping() {
   const cancelled = await runCountdown();
   if (cancelled || sessionState === "idle") return; // Stop was pressed during countdown
 
-  updateProgress(0, _totalWords, false);
+  if (_totalWords > 0) updateProgress(0, _totalWords, false);
   setSessionState("typing");
   persistProgressState(_totalWords, 0);
   setStatus("Typing…");
@@ -334,7 +343,7 @@ async function beginTyping() {
       setSessionState("idle");
       if (result?.success) {
         if (!result.stopped) {
-          updateProgress(_totalWords, _totalWords, true);
+          if (_totalWords > 0) updateProgress(_totalWords, _totalWords, true);
           setStatus("Done.", "success");
         } else {
           setStatus("Stopped.");
@@ -378,7 +387,7 @@ async function doPause() {
 async function doResume() {
   setSessionState("typing");
   setStatus("Typing…");
-  chrome.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "resume" } }).catch(() => {});
+  chrome.runtime.sendMessage({ action: "relay-to-frame", payload: { action: "resume", delay: speedDelays[selectedSpeed] } }).catch(() => {});
 }
 
 els.stopBtn.addEventListener("click", () => {
@@ -399,8 +408,10 @@ els.stopBtn.addEventListener("click", () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === "typing-progress") {
     _wordsTyped = msg.wordsTyped;
-    updateProgress(_wordsTyped, _totalWords, false);
-    persistProgressState(_totalWords, _wordsTyped);
+    if (_totalWords > 0) {
+      updateProgress(_wordsTyped, _totalWords, false);
+      persistProgressState(_totalWords, _wordsTyped);
+    }
   }
 
   if (msg.action === "targetUpdate") {
@@ -424,7 +435,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (sessionState !== "idle") {
       setSessionState("idle");
       if (!msg.stopped && !msg.error) {
-        updateProgress(_totalWords, _totalWords, true);
+        if (_totalWords > 0) updateProgress(_totalWords, _totalWords, true);
         setStatus("Done.", "success");
         persistProgressState(_totalWords, _totalWords);
       } else {
@@ -449,11 +460,13 @@ function setStatus(msg, type = "") {
 // Startup: restore all state from storage
 // ---------------------------------------------------------------------------
 (async function init() {
+  document.body.classList.add('no-transition');
   const saved = await chrome.storage.local.get([
     // Settings
     "textInput", "selectedSpeed", "varSpeed", "wordDifficulty",
     "naturalPauses", "pauseEvery", "pauseDuration", "punctPauses", "varyTimes",
     "makeMistakes", "mistakePause", "mistakeRate",
+    "paragraphPause", "selfInterrupt",
     // Session state
     "sessionState", "statusMsg", "statusType",
     // Target field
@@ -492,6 +505,9 @@ function setStatus(msg, type = "") {
 
   if (saved.mistakePause !== undefined) els.mistakePause.value = saved.mistakePause;
   if (saved.mistakeRate  !== undefined) els.mistakeRate.value = saved.mistakeRate;
+
+  if (saved.paragraphPause !== undefined) els.paragraphPause.checked = saved.paragraphPause;
+  if (saved.selfInterrupt  !== undefined) els.selfInterrupt.checked  = saved.selfInterrupt;
 
   // --- Restore session state (UI only — the content script is already running) ---
   // Verify with the content script that typing is actually still active before
@@ -546,4 +562,5 @@ function setStatus(msg, type = "") {
 
   // Unlock saving — from here on every user interaction is immediately persisted
   isInitializing = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('no-transition')));
 })();
