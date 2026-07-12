@@ -178,6 +178,21 @@
     return Math.max(min, Math.min(max, value));
   }
 
+  // Characters that require holding Shift — these take a touch longer because
+  // of the extra finger movement involved.
+  const SHIFT_SYMBOLS = new Set(['!','@','#','$','%','^','&','*','(',')','_','+','{','}','|',':','"','<','>','?','~']);
+  function requiresShift(ch) {
+    return /[A-Z]/.test(ch) || SHIFT_SYMBOLS.has(ch);
+  }
+
+  // Scales the small "thinking pause" windows below relative to the chosen
+  // typing speed, so Fast doesn't get the same multi-second hesitations as
+  // Slow (and vice versa) — only timings the user hasn't explicitly configured
+  // in seconds are scaled.
+  function pauseScale(delay) {
+    return clamp(delay / speedDelays.medium, 0.35, 1.3);
+  }
+
   globalThis.TextToWriteConfig = Object.freeze({
     speedDelays,
     behaviorStorageKeys,
@@ -185,5 +200,8 @@
     wordDifficultyMultiplier,
     adjustedMistakeRate,
     generateMistake,
+    qwertyNeighbors,
+    requiresShift,
+    pauseScale,
   });
 })();

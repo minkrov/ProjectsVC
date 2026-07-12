@@ -8,13 +8,15 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "playwright test",
-    "generate:verses": "node scripts/generate-daily-verses.mjs"
+    "generate:verses": "node scripts/generate-daily-verses.mjs",
+    "backend:smoke": "node scripts/supabase-smoke.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.4",
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.3.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "vite": "^7.3.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

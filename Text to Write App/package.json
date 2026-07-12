@@ -1,0 +1,15 @@
+{
+  "name": "text-to-write-app",
+  "private": true,
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "package": "node scripts/package-dist.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

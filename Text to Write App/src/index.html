@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Text to Write</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 18px 16px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #89b4fa;
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #a6adc8;
+      margin-bottom: 5px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 140px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #cdd6f4;
+      font-size: 13px;
+      padding: 8px 10px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    textarea:focus {
+      border-color: #89b4fa;
+    }
+
+    .speed-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #a6adc8;
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+
+    .speed-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .mode-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      margin-bottom: 14px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 8px 0;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      background: #313244;
+      color: #a6adc8;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      user-select: none;
+      letter-spacing: 0.04em;
+    }
+
+    .mode-btn:hover {
+      border-color: #cba6f7;
+      color: #cdd6f4;
+    }
+
+    .mode-btn.active {
+      background: #cba6f7;
+      border-color: #cba6f7;
+      color: #1e1e2e;
+    }
+
+    .personalities-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .personality-card {
+      padding: 10px 12px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .personality-card:hover {
+      border-color: #cba6f7;
+    }
+
+    .personality-card.active {
+      border-color: #cba6f7;
+      background: #3a3354;
+    }
+
+    .personality-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .personality-card.active .personality-name::after {
+      content: "Active";
+      margin-left: auto;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #cba6f7;
+      background: #1e1e2e;
+      border: 1px solid #cba6f7;
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+
+    .personality-desc {
+      font-size: 11px;
+      color: #a6adc8;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    .speed-btn {
+      flex: 1;
+      padding: 7px 0;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      background: #313244;
+      color: #a6adc8;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      user-select: none;
+    }
+
+    .speed-btn:hover {
+      border-color: #89b4fa;
+      color: #cdd6f4;
+    }
+
+    .speed-btn.active {
+      background: #89b4fa;
+      border-color: #89b4fa;
+      color: #1e1e2e;
+      font-weight: 600;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    #start-btn {
+      flex: 1;
+      padding: 10px;
+      background: #a6e3a1;
+      border: none;
+      border-radius: 6px;
+      color: #1e1e2e;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      letter-spacing: 0.03em;
+    }
+
+    #start-btn:hover:not(:disabled) {
+      background: #b9f1b4;
+    }
+
+    #start-btn:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    #start-btn:disabled {
+      background: #45475a;
+      color: #6c7086;
+      cursor: not-allowed;
+    }
+
+    /* Countdown state — amber number on the button, overrides :disabled grey */
+    #start-btn.countdown-mode {
+      background: #f9e2af;
+      color: #1e1e2e;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0;
+      cursor: default;
+    }
+
+    /* Pause state — warm red that sits opposite the green */
+    #start-btn.pause-mode {
+      background: #f38ba8;
+    }
+
+    #start-btn.pause-mode:hover:not(:disabled) {
+      background: #f5a3b8;
+    }
+
+    #stop-btn {
+      padding: 10px 14px;
+      background: transparent;
+      border: 1px solid #f38ba8;
+      border-radius: 6px;
+      color: #f38ba8;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: none;
+    }
+
+    #stop-btn.visible {
+      display: block;
+    }
+
+    #stop-btn:hover {
+      background: #f38ba820;
+    }
+
+    #status {
+      margin-top: 12px;
+      font-size: 12px;
+      text-align: center;
+      min-height: 16px;
+      color: #a6adc8;
+    }
+
+    #status.error {
+      color: #f38ba8;
+    }
+
+    #status.success {
+      color: #a6e3a1;
+    }
+
+    .target-box {
+      margin-top: 14px;
+      padding: 9px 12px;
+      background: #313244;
+      border-radius: 6px;
+      border: 1px solid #45475a;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .target-box .target-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #6c7086;
+      margin-bottom: 3px;
+    }
+
+    .target-box .target-value {
+      color: #a6adc8;
+      font-family: monospace;
+      font-size: 11px;
+      word-break: break-all;
+    }
+
+    .target-box.ready {
+      border-color: #a6e3a1;
+    }
+
+    .target-box.ready .target-value {
+      color: #a6e3a1;
+    }
+
+    .target-box.none {
+      border-color: #f38ba8;
+    }
+
+    .target-box.none .target-value {
+      color: #f38ba8;
+    }
+
+    .options-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #a6adc8;
+      margin-top: 14px;
+      margin-bottom: 8px;
+    }
+
+    .option-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+    }
+
+    .option-row input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      border: 1.5px solid #585b70;
+      border-radius: 4px;
+      background: #1e1e2e;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .option-row input[type="checkbox"]:checked {
+      background: #89b4fa;
+      border-color: #89b4fa;
+    }
+
+    .option-row input[type="checkbox"]:checked::after {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 1px;
+      width: 5px;
+      height: 9px;
+      border: 2px solid #1e1e2e;
+      border-top: none;
+      border-left: none;
+      transform: rotate(45deg);
+    }
+
+    .option-row label {
+      font-size: 12px;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+      color: #cdd6f4;
+      cursor: pointer;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    .option-row label span {
+      display: block;
+      font-size: 10px;
+      color: #6c7086;
+      margin-top: 1px;
+    }
+
+    .tempo-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .tempo-grid .option-row {
+      margin: 0;
+      padding: 8px 9px;
+      align-items: flex-start;
+    }
+
+    .tempo-grid .option-row label {
+      font-size: 11px;
+      line-height: 1.25;
+      min-width: 0;
+    }
+
+    .tempo-grid .option-row label span {
+      line-height: 1.25;
+    }
+
+    .pause-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .pause-fields.disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .pause-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+    }
+
+    .pause-row-label {
+      font-size: 12px;
+      color: #cdd6f4;
+      white-space: nowrap;
+    }
+
+    .pause-row-label span {
+      display: block;
+      font-size: 10px;
+      color: #6c7086;
+      margin-top: 1px;
+    }
+
+    .pause-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .pause-input-wrap input[type="number"] {
+      width: 56px;
+      padding: 5px 8px;
+      background: #1e1e2e;
+      border: 1px solid #585b70;
+      border-radius: 5px;
+      color: #cdd6f4;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      outline: none;
+      transition: border-color 0.15s;
+      -moz-appearance: textfield;
+    }
+
+    .pause-input-wrap input[type="number"]::-webkit-inner-spin-button,
+    .pause-input-wrap input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+    }
+
+    .pause-input-wrap input[type="number"]:focus {
+      border-color: #89b4fa;
+    }
+
+    .pause-input-wrap .unit {
+      font-size: 11px;
+      color: #6c7086;
+    }
+
+    .vary-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: #1e1e2e;
+      border: 1px dashed #45475a;
+      border-radius: 6px;
+    }
+
+    .vary-row input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      border: 1.5px solid #585b70;
+      border-radius: 4px;
+      background: #313244;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .vary-row input[type="checkbox"]:checked {
+      background: #cba6f7;
+      border-color: #cba6f7;
+    }
+
+    .vary-row input[type="checkbox"]:checked::after {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 1px;
+      width: 5px;
+      height: 9px;
+      border: 2px solid #1e1e2e;
+      border-top: none;
+      border-left: none;
+      transform: rotate(45deg);
+    }
+
+    .vary-row label {
+      font-size: 12px;
+      color: #cdd6f4;
+      cursor: pointer;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    .vary-row label span {
+      display: block;
+      font-size: 10px;
+      color: #6c7086;
+      margin-top: 1px;
+    }
+
+    /* Chevron arrow on the spelling mistakes row */
+    .option-row .chevron {
+      margin-left: auto;
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #585b70;
+      pointer-events: none;
+    }
+
+    .option-row .chevron svg {
+      display: block;
+    }
+
+    .option-row.expanded .chevron {
+      transform: rotate(180deg);
+      color: #89b4fa;
+    }
+
+    /* Collapsible panels (shared by natural pauses + spelling mistakes) */
+    .collapsible {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .collapsible.expanded {
+      grid-template-rows: 1fr;
+    }
+
+    .collapsible-inner {
+      overflow: hidden;
+    }
+
+    .collapsible-inner .pause-fields {
+      padding-top: 8px;
+    }
+
+    /* Keep old names as aliases so existing mistake markup still works */
+    .mistake-collapsible         { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+    .mistake-collapsible.expanded { grid-template-rows: 1fr; }
+    .mistake-collapsible-inner   { overflow: hidden; }
+    .mistake-collapsible-inner .pause-fields { padding-top: 8px; }
+
+    /* Progress bar */
+    #progress-section {
+      margin-top: 10px;
+      display: none;
+    }
+
+    #progress-section.visible {
+      display: block;
+    }
+
+    #progress-bar-track {
+      height: 5px;
+      background: #181825;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #89b4fa;
+      border-radius: 3px;
+      transition: width 0.35s ease, background-color 0.4s ease;
+    }
+
+    #progress-bar-fill.finished {
+      background: #a6e3a1;
+    }
+
+    #progress-label {
+      margin-top: 5px;
+      font-size: 11px;
+      text-align: center;
+      color: #585b70;
+      letter-spacing: 0.02em;
+    }
+
+    #progress-label.finished {
+      color: #a6e3a1;
+      font-weight: 600;
+    }
+
+    /* Applied during init() to prevent accordion animations firing while
+       saved state is being restored. Removed after the first paint. */
+    .no-transition, .no-transition * {
+      transition: none !important;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text to Write</h1>
+
+  <label for="text-input">Text to type</label>
+  <textarea id="text-input" placeholder="Enter text to type into the focused field…"></textarea>
+
+  <div class="mode-group">
+    <div class="mode-btn active" data-mode="custom">Custom</div>
+    <div class="mode-btn" data-mode="personalities">Personalities</div>
+  </div>
+
+  <div class="pause-row" style="margin-bottom: 14px;">
+    <div class="pause-row-label">
+      Start delay
+      <span>Countdown before typing begins</span>
+    </div>
+    <div class="pause-input-wrap">
+      <input type="number" id="start-delay" value="3" min="1" max="60">
+      <span class="unit">sec</span>
+    </div>
+  </div>
+
+  <div id="personalities-panel" class="personalities-panel" style="display: none;">
+    <div class="personality-card" data-personality="casual">
+      <div class="personality-name">Casual</div>
+      <div class="personality-desc">Quick and relaxed — fast typing with light pauses and on-the-fly typo fixes.</div>
+    </div>
+    <div class="personality-card" data-personality="focused">
+      <div class="personality-name">Focused</div>
+      <div class="personality-desc">Steady, balanced typing — a natural everyday pace with occasional corrections.</div>
+    </div>
+    <div class="personality-card" data-personality="careful">
+      <div class="personality-name">Careful</div>
+      <div class="personality-desc">Slower and deliberate — longer thinking pauses and thoughtful corrections.</div>
+    </div>
+    <div class="personality-card" data-personality="distracted">
+      <div class="personality-name">Distracted</div>
+      <div class="personality-desc">Irregular rhythm — long pauses, bursts of typing, and occasional slip-ups.</div>
+    </div>
+  </div>
+
+  <div id="custom-panel">
+  <div class="speed-label">Typing speed</div>
+  <div class="speed-group">
+    <div class="speed-btn" data-speed="slow">Slow</div>
+    <div class="speed-btn active" data-speed="medium">Medium</div>
+    <div class="speed-btn" data-speed="fast">Fast</div>
+  </div>
+
+  <div class="tempo-grid">
+    <div class="option-row">
+      <input type="checkbox" id="var-speed">
+      <label for="var-speed">
+        Variable speed
+        <span>Shifts tempo mid-text</span>
+      </label>
+    </div>
+    <div class="option-row">
+      <input type="checkbox" id="word-difficulty">
+      <label for="word-difficulty">
+        Word difficulty
+        <span>Slows tricky words slightly</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="options-label">Behaviour</div>
+  <div class="option-row expanded" id="natural-pauses-row" style="cursor: pointer;">
+    <input type="checkbox" id="natural-pauses" checked>
+    <label for="natural-pauses" style="pointer-events: none;">
+      Natural pauses
+      <span>Pause periodically to simulate human thinking</span>
+    </label>
+    <span class="chevron">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+  </div>
+
+  <div class="collapsible expanded" id="natural-pauses-collapsible">
+    <div class="collapsible-inner">
+      <div class="pause-fields" id="pause-fields">
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Pause every
+            <span>Typing time between pauses</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="pause-every" value="7" min="1" max="999">
+            <span class="unit">sec</span>
+          </div>
+        </div>
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Pause duration
+            <span>How long each pause lasts</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="pause-duration" value="10" min="1" max="999">
+            <span class="unit">sec</span>
+          </div>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="punct-pauses">
+          <label for="punct-pauses">
+            Punctuation pauses
+            <span>Brief 1–2 s pause every 3–4 punctuation marks</span>
+          </label>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="vary-times">
+          <label for="vary-times">
+            Vary times
+            <span>Shifts each value by ±1–3 s randomly</span>
+          </label>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="paragraph-pause">
+          <label for="paragraph-pause">
+            Paragraph hesitation
+            <span>Pause 1–3 s before each new paragraph</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option-row" id="mistakes-row" style="margin-top: 8px; cursor: pointer;">
+    <input type="checkbox" id="make-mistakes">
+    <label for="make-mistakes" style="pointer-events: none;">
+      Spelling mistakes
+      <span>Randomly mistype words, then self-correct</span>
+    </label>
+    <span class="chevron">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+  </div>
+
+  <div class="mistake-collapsible" id="mistake-collapsible">
+    <div class="mistake-collapsible-inner">
+      <div class="pause-fields" id="mistake-fields">
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Mistake pause
+            <span>Pause after mistake and after deleting</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="mistake-pause" value="5" min="1" max="999">
+            <span class="unit">sec</span>
+          </div>
+        </div>
+        <div class="pause-row">
+          <div class="pause-row-label">
+            Mistake rate
+            <span>How often mistakes occur</span>
+          </div>
+          <div class="pause-input-wrap">
+            <input type="number" id="mistake-rate" value="10" min="1" max="50">
+            <span class="unit">%</span>
+          </div>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="self-interrupt">
+          <label for="self-interrupt">
+            Self-interruption
+            <span>Occasionally finish a word, delete it, then retype</span>
+          </label>
+        </div>
+        <div class="vary-row">
+          <input type="checkbox" id="quick-corrections">
+          <label for="quick-corrections">
+            Quick self-corrections
+            <span>Catch and instantly fix small typos as you type</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="btn-row" style="margin-top: 14px;">
+    <button id="start-btn">Type it</button>
+    <button id="stop-btn">Stop</button>
+  </div>
+  <div id="status"></div>
+
+  <div id="progress-section">
+    <div id="progress-bar-track">
+      <div id="progress-bar-fill"></div>
+    </div>
+    <div id="progress-label"></div>
+  </div>
+
+  <div class="target-box none" id="target-box">
+    <div class="target-label">Target field</div>
+    <div class="target-value" id="target-value">Click into a text field in any app first</div>
+  </div>
+
+  <script src="typing-options.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

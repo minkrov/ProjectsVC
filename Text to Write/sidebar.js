@@ -2,6 +2,82 @@ const { speedDelays, normalizeTypingBehavior } = globalThis.TextToWriteConfig;
 let selectedSpeed = "medium";
 
 // ---------------------------------------------------------------------------
+// Personalities — named bundles of the settings below. Selecting one fills in
+// the Custom panel's controls so the user can see (and further tweak) exactly
+// what was applied.
+// ---------------------------------------------------------------------------
+const PERSONALITIES = {
+  casual: {
+    selectedSpeed: "fast",
+    varSpeed: true,
+    wordDifficulty: false,
+    naturalPauses: true,
+    pauseEvery: 12,
+    pauseDuration: 4,
+    punctPauses: false,
+    varyTimes: true,
+    paragraphPause: false,
+    makeMistakes: true,
+    mistakePause: 3,
+    mistakeRate: 14,
+    selfInterrupt: false,
+    quickCorrections: true,
+  },
+  focused: {
+    selectedSpeed: "medium",
+    varSpeed: false,
+    wordDifficulty: true,
+    naturalPauses: true,
+    pauseEvery: 8,
+    pauseDuration: 8,
+    punctPauses: true,
+    varyTimes: true,
+    paragraphPause: true,
+    makeMistakes: true,
+    mistakePause: 5,
+    mistakeRate: 9,
+    selfInterrupt: true,
+    quickCorrections: true,
+  },
+  careful: {
+    selectedSpeed: "slow",
+    varSpeed: false,
+    wordDifficulty: true,
+    naturalPauses: true,
+    pauseEvery: 6,
+    pauseDuration: 12,
+    punctPauses: true,
+    varyTimes: true,
+    paragraphPause: true,
+    makeMistakes: true,
+    mistakePause: 6,
+    mistakeRate: 6,
+    selfInterrupt: true,
+    quickCorrections: false,
+  },
+  distracted: {
+    selectedSpeed: "medium",
+    varSpeed: true,
+    wordDifficulty: false,
+    naturalPauses: true,
+    pauseEvery: 5,
+    pauseDuration: 15,
+    punctPauses: true,
+    varyTimes: true,
+    paragraphPause: true,
+    makeMistakes: true,
+    mistakePause: 7,
+    mistakeRate: 11,
+    selfInterrupt: true,
+    quickCorrections: true,
+  },
+};
+
+let _activeMode = "custom";        // "custom" | "personalities"
+let _activePersonality = null;     // key into PERSONALITIES, or null
+let _applyingPersonality = false;  // suppresses _activePersonality reset while applying a preset
+
+// ---------------------------------------------------------------------------
 // Progress bar
 // ---------------------------------------------------------------------------
 let _totalWords = 0;
@@ -63,6 +139,10 @@ function saveSettings() {
     mistakeRate:   document.getElementById("mistake-rate").value,
     paragraphPause: document.getElementById("paragraph-pause").checked,
     selfInterrupt:  document.getElementById("self-interrupt").checked,
+    quickCorrections: document.getElementById("quick-corrections").checked,
+    startDelay:     document.getElementById("start-delay").value,
+    activeMode:     _activeMode,
+    activePersonality: _activePersonality || "",
   }).catch(() => {});
 }
 
@@ -72,8 +152,88 @@ document.querySelectorAll(".speed-btn").forEach((btn) => {
     document.querySelectorAll(".speed-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     selectedSpeed = btn.dataset.speed;
+    clearActivePersonality();
     saveSettings();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Custom / Personalities mode toggle
+// ---------------------------------------------------------------------------
+const customPanel        = document.getElementById("custom-panel");
+const personalitiesPanel = document.getElementById("personalities-panel");
+
+function setMode(mode) {
+  _activeMode = mode;
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+  });
+  customPanel.style.display        = mode === "custom" ? "" : "none";
+  personalitiesPanel.style.display = mode === "personalities" ? "" : "none";
+  saveSettings();
+}
+
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setMode(btn.dataset.mode));
+});
+
+// Clears the active-personality highlight whenever the user manually edits a
+// custom setting, so the UI never claims a personality is active when the
+// underlying values no longer match it.
+function clearActivePersonality() {
+  if (_applyingPersonality || _activePersonality === null) return;
+  _activePersonality = null;
+  updatePersonalityCardsUI();
+}
+
+function updatePersonalityCardsUI() {
+  document.querySelectorAll(".personality-card").forEach((card) => {
+    card.classList.toggle("active", card.dataset.personality === _activePersonality);
+  });
+}
+
+// Applies a named personality preset to all Custom-panel controls, then
+// persists and refreshes accordions so the result is immediately visible.
+function applyPersonality(key) {
+  const preset = PERSONALITIES[key];
+  if (!preset) return;
+
+  _applyingPersonality = true;
+
+  selectedSpeed = preset.selectedSpeed;
+  document.querySelectorAll(".speed-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.speed === selectedSpeed);
+  });
+
+  document.getElementById("var-speed").checked       = preset.varSpeed;
+  document.getElementById("word-difficulty").checked = preset.wordDifficulty;
+
+  naturalPausesCheckbox.checked = preset.naturalPauses;
+  document.getElementById("pause-every").value     = preset.pauseEvery;
+  document.getElementById("pause-duration").value  = preset.pauseDuration;
+  document.getElementById("punct-pauses").checked  = preset.punctPauses;
+  document.getElementById("vary-times").checked    = preset.varyTimes;
+  document.getElementById("paragraph-pause").checked = preset.paragraphPause;
+  naturalPausesRow.classList.toggle("expanded", preset.naturalPauses);
+  naturalPausesCollapsible.classList.toggle("expanded", preset.naturalPauses);
+
+  mistakesCheckbox.checked = preset.makeMistakes;
+  document.getElementById("mistake-pause").value = preset.mistakePause;
+  document.getElementById("mistake-rate").value  = preset.mistakeRate;
+  document.getElementById("self-interrupt").checked   = preset.selfInterrupt;
+  document.getElementById("quick-corrections").checked = preset.quickCorrections;
+  mistakesRow.classList.toggle("expanded", preset.makeMistakes);
+  mistakeCollapsible.classList.toggle("expanded", preset.makeMistakes);
+
+  _activePersonality = key;
+  updatePersonalityCardsUI();
+  saveSettings();
+
+  _applyingPersonality = false;
+}
+
+document.querySelectorAll(".personality-card").forEach((card) => {
+  card.addEventListener("click", () => applyPersonality(card.dataset.personality));
 });
 
 // Natural pauses accordion
@@ -91,6 +251,7 @@ function updateNaturalPausesPanel() {
   const on = naturalPausesCheckbox.checked;
   naturalPausesRow.classList.toggle("expanded", on);
   naturalPausesCollapsible.classList.toggle("expanded", on);
+  clearActivePersonality();
   saveSettings();
 }
 
@@ -109,6 +270,7 @@ function updateMistakePanel() {
   const on = mistakesCheckbox.checked;
   mistakesRow.classList.toggle("expanded", on);
   mistakeCollapsible.classList.toggle("expanded", on);
+  clearActivePersonality();
   saveSettings();
 }
 
@@ -122,11 +284,23 @@ document.getElementById("text-input").addEventListener("input", () => {
   _saveTextTimeout = setTimeout(saveSettings, 500);
 });
 ["pause-every", "pause-duration", "mistake-pause", "mistake-rate"].forEach((id) => {
-  document.getElementById(id).addEventListener("input", saveSettings);
+  document.getElementById(id).addEventListener("input", () => {
+    if (isInitializing) return;
+    clearActivePersonality();
+    saveSettings();
+  });
+});
+document.getElementById("start-delay").addEventListener("input", () => {
+  if (isInitializing) return;
+  saveSettings();
 });
 ["var-speed", "word-difficulty", "punct-pauses", "vary-times",
- "paragraph-pause", "self-interrupt"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", saveSettings);
+ "paragraph-pause", "self-interrupt", "quick-corrections"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", () => {
+    if (isInitializing) return;
+    clearActivePersonality();
+    saveSettings();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -146,7 +320,7 @@ function setSessionState(state) {
     startBtn.disabled = false;
     stopBtn.classList.remove("visible");
   } else if (state === "countdown") {
-    startBtn.textContent = "3";
+    startBtn.textContent = String(parseInt(document.getElementById("start-delay").value, 10) || 3);
     startBtn.classList.remove("pause-mode");
     startBtn.classList.add("countdown-mode");
     startBtn.disabled = true;
@@ -172,9 +346,9 @@ function setSessionState(state) {
 
 // Returns a Promise that resolves false when the countdown finishes naturally,
 // or true if the user pressed Stop while it was running.
-function runCountdown() {
+function runCountdown(startCount) {
   return new Promise((resolve) => {
-    let count = 3;
+    let count = startCount;
     let timeoutId;
 
     _cancelCountdown = () => {
@@ -223,7 +397,8 @@ async function beginTyping() {
   setSessionState("countdown");
   setStatus("Starting…");
 
-  const cancelled = await runCountdown();
+  const startDelay = parseInt(document.getElementById("start-delay").value, 10) || 3;
+  const cancelled = await runCountdown(startDelay);
   if (cancelled || sessionState === "idle") return; // Stop was pressed during countdown
 
   if (_totalWords > 0) updateProgress(0, _totalWords, false);
@@ -265,6 +440,7 @@ async function beginTyping() {
       wordHesitation: true,
       sentenceStart:  true,
       selfInterrupt:  document.getElementById("self-interrupt").checked,
+      quickCorrections: document.getElementById("quick-corrections").checked,
     });
 
     // Only update UI if the session wasn't already cancelled by the stop button
@@ -380,7 +556,8 @@ function setStatus(msg, type = "") {
     "textInput", "selectedSpeed", "varSpeed", "wordDifficulty",
     "naturalPauses", "pauseEvery", "pauseDuration", "punctPauses", "varyTimes",
     "makeMistakes", "mistakePause", "mistakeRate",
-    "paragraphPause", "selfInterrupt",
+    "paragraphPause", "selfInterrupt", "quickCorrections",
+    "startDelay", "activeMode", "activePersonality",
     // Session state
     "sessionState", "statusMsg", "statusType",
     // Target field
@@ -429,6 +606,14 @@ function setStatus(msg, type = "") {
 
   if (saved.paragraphPause !== undefined) document.getElementById("paragraph-pause").checked = saved.paragraphPause;
   if (saved.selfInterrupt  !== undefined) document.getElementById("self-interrupt").checked  = saved.selfInterrupt;
+  if (saved.quickCorrections !== undefined) document.getElementById("quick-corrections").checked = saved.quickCorrections;
+  if (saved.startDelay !== undefined) document.getElementById("start-delay").value = saved.startDelay;
+
+  if (saved.activePersonality && PERSONALITIES[saved.activePersonality]) {
+    _activePersonality = saved.activePersonality;
+    updatePersonalityCardsUI();
+  }
+  setMode(saved.activeMode === "personalities" ? "personalities" : "custom");
 
   // --- Restore session state (UI only — the content script is already running) ---
   // Verify with the content script that typing is actually still active before

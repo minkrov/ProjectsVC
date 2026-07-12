@@ -234,6 +234,7 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     wordHesitation: message.wordHesitation,
     sentenceStart:  message.sentenceStart,
     selfInterrupt:  message.selfInterrupt,
+    quickCorrections: message.quickCorrections,
   };
 
   typeText(el, message.text, message.delay, opts)
@@ -277,6 +278,14 @@ async function typeText(el, text, delay, opts) {
   let speedMult            = 1.0;
   let charsUntilSpeedShift = randomInt(20, 50);
 
+  // Burst-typing rhythm: a short extra pause every few characters, at every
+  // speed, so even Fast mode doesn't feel like a metronome.
+  const burst = { counter: randomInt(3, 8) };
+
+  // Pending "dropped letter" — set when a character is skipped and caught
+  // a beat later (see quick-corrections below).
+  let pendingDrop = null;
+
   // Sentence / paragraph state
   let afterSentenceEnd = true;  // true at text start = sentence-start slowdown for first word
   let afterNewline     = false; // true after a non-word token that contains \n
@@ -284,6 +293,8 @@ async function typeText(el, text, delay, opts) {
   for (const token of tokens) {
     delay = _activeDelay; // pick up any speed change made during a pause
     if (await checkStop()) return true;
+
+    const pScale = typingConfig.pauseScale(delay);
 
     const isWordToken = /^[a-zA-Z']/.test(token); // for progress counting
     const isWord      = /^[a-zA-Z']{3,}$/.test(token); // for mistake generation
@@ -293,12 +304,12 @@ async function typeText(el, text, delay, opts) {
 
     // Paragraph hesitation — before first word after a newline
     if (isWordToken && afterNewline && opts.paragraphPause) {
-      if (await interruptibleSleep(randomBetween(1000, 3000))) return true;
+      if (await interruptibleSleep(randomBetween(1000 * pScale, 3000 * pScale))) return true;
     }
 
     // Word hesitation — before rare/long words
     if (isWordToken && opts.wordHesitation && typingConfig.wordDifficultyMultiplier(token) >= 1.2) {
-      if (await interruptibleSleep(randomBetween(500, 2500))) return true;
+      if (await interruptibleSleep(randomBetween(500 * pScale, 2500 * pScale))) return true;
     }
 
     // Sentence-start slowdown multiplier
@@ -316,8 +327,13 @@ async function typeText(el, text, delay, opts) {
       for (const char of misspelled) {
         if (await checkStop()) return true;
         await typeCharacter(el, char);
-        if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
+        const d = charDelay(delay, speedMult, opts.varSpeed, wordMult, char);
+        if (await typeSleep(d)) return true;
+        elapsed += d;
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+        const burstExtra = await maybeBurstPause(burst, pScale);
+        if (burstExtra === null) return true;
+        elapsed += burstExtra;
       }
 
       // Pause — "noticing" the mistake
@@ -327,7 +343,9 @@ async function typeText(el, text, delay, opts) {
       for (let i = 0; i < misspelled.length; i++) {
         if (await checkStop()) return true;
         await typeBackspace(el);
-        if (await typeSleep(delay + jitter(delay * 0.3))) return true;
+        const d = delay + jitter(delay * 0.3);
+        if (await typeSleep(d)) return true;
+        elapsed += d;
       }
 
       // Pause — "thinking" before retyping
@@ -337,8 +355,13 @@ async function typeText(el, text, delay, opts) {
       for (const char of token) {
         if (await checkStop()) return true;
         await typeCharacter(el, char);
-        if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
+        const d = charDelay(delay, speedMult, opts.varSpeed, wordMult, char);
+        if (await typeSleep(d)) return true;
+        elapsed += d;
         ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+        const burstExtra = await maybeBurstPause(burst, pScale);
+        if (burstExtra === null) return true;
+        elapsed += burstExtra;
       }
 
       wordsTyped++;
@@ -350,7 +373,9 @@ async function typeText(el, text, delay, opts) {
 
     } else {
       let charIndex = 0;
+      const charsCount = token.length;
       for (const char of token) {
+        if (char === '\r') continue; // CR is a no-op — avoids double newlines on CRLF text
         if (await checkStop()) return true;
 
         // Natural pause — check at each character
@@ -364,42 +389,158 @@ async function typeText(el, text, delay, opts) {
         const doCapSlip = opts.mistakes && afterSentenceEnd && charIndex === 0
           && isWordToken && /[A-Z]/.test(char) && Math.random() < 0.12;
 
+        // Quick self-corrections: small typos that get caught and fixed
+        // almost instantly, the way a fast typist would.
+        const quickEligible = opts.mistakes && opts.quickCorrections && !doCapSlip && /[a-zA-Z]/.test(char);
+
+        const doDropCatch = pendingDrop !== null;
+
+        const doDropNow = !doDropCatch && quickEligible
+          && charIndex + 1 < charsCount && Math.random() < 0.012;
+
+        const doInstantFix = !doDropCatch && !doDropNow && quickEligible
+          && charIndex > 0 && typingConfig.qwertyNeighbors[char.toLowerCase()] && Math.random() < 0.02;
+
+        const doStuckShift = !doDropCatch && !doDropNow && !doInstantFix && quickEligible
+          && charIndex > 0 && /[a-z]/.test(char) && Math.random() < 0.012;
+
         if (doCapSlip) {
           await typeCharacter(el, char.toLowerCase());
-          if (await typeSleep(charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult))) return true;
+          const dSlip = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, char.toLowerCase());
+          if (await typeSleep(dSlip)) return true;
+          elapsed += dSlip;
           ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
-          if (await interruptibleSleep(randomBetween(200, 600))) return true;
+
+          if (await interruptibleSleep(randomBetween(200 * pScale, 600 * pScale))) return true;
           await typeBackspace(el);
-          if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
+          const dBs = charDelay(delay, speedMult, opts.varSpeed, wordMult, ' ');
+          if (await typeSleep(dBs)) return true;
+          elapsed += dBs;
+
           await typeCharacter(el, char);
-          const dCap = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult);
+          const dCap = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, char);
           if (await typeSleep(dCap)) return true;
           ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
           elapsed += dCap;
+
+          const burstExtra = await maybeBurstPause(burst, pScale);
+          if (burstExtra === null) return true;
+          elapsed += burstExtra;
+        } else if (doDropCatch) {
+          // Catch-up from a dropped letter one character ago: type this
+          // character normally, then a beat later notice the gap, backspace,
+          // and retype the missed letter + this one.
+          const missed = pendingDrop;
+          pendingDrop = null;
+
+          await typeCharacter(el, char);
+          const d = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, char);
+          if (await typeSleep(d)) return true;
+          elapsed += d;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+
+          if (await interruptibleSleep(randomBetween(150, 400) * pScale)) return true;
+          await typeBackspace(el);
+          const dBs = charDelay(delay, speedMult, opts.varSpeed, wordMult, ' ');
+          if (await typeSleep(dBs)) return true;
+          elapsed += dBs;
+
+          await typeCharacter(el, missed);
+          const dMissed = charDelay(delay, speedMult, opts.varSpeed, wordMult, missed);
+          if (await typeSleep(dMissed)) return true;
+          elapsed += dMissed;
+
+          await typeCharacter(el, char);
+          const dRedo = charDelay(delay, speedMult, opts.varSpeed, wordMult, char);
+          if (await typeSleep(dRedo)) return true;
+          elapsed += dRedo;
+
+          const burstExtra = await maybeBurstPause(burst, pScale);
+          if (burstExtra === null) return true;
+          elapsed += burstExtra;
+        } else if (doDropNow) {
+          // Skip this letter entirely for now — it gets typed when the gap
+          // is "noticed" on the next character.
+          pendingDrop = char;
+        } else if (doInstantFix) {
+          // Hit an adjacent key, notice immediately, fix it.
+          const lower = char.toLowerCase();
+          const neighbors = typingConfig.qwertyNeighbors[lower];
+          const wrongLower = neighbors[randomInt(0, neighbors.length - 1)];
+          const wrong = /[A-Z]/.test(char) ? wrongLower.toUpperCase() : wrongLower;
+
+          await typeCharacter(el, wrong);
+          const dWrong = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, wrong);
+          if (await typeSleep(dWrong)) return true;
+          elapsed += dWrong;
+
+          if (await interruptibleSleep(randomBetween(80, 220) * pScale)) return true;
+          await typeBackspace(el);
+          const dBs = charDelay(delay, speedMult, opts.varSpeed, wordMult, ' ');
+          if (await typeSleep(dBs)) return true;
+          elapsed += dBs;
+
+          await typeCharacter(el, char);
+          const d = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, char);
+          if (await typeSleep(d)) return true;
+          elapsed += d;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+
+          const burstExtra = await maybeBurstPause(burst, pScale);
+          if (burstExtra === null) return true;
+          elapsed += burstExtra;
+        } else if (doStuckShift) {
+          // Shift "sticks" for one extra letter, notice immediately, fix it.
+          const upper = char.toUpperCase();
+
+          await typeCharacter(el, upper);
+          const dUp = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, upper);
+          if (await typeSleep(dUp)) return true;
+          elapsed += dUp;
+
+          if (await interruptibleSleep(randomBetween(100, 300) * pScale)) return true;
+          await typeBackspace(el);
+          const dBs = charDelay(delay, speedMult, opts.varSpeed, wordMult, ' ');
+          if (await typeSleep(dBs)) return true;
+          elapsed += dBs;
+
+          await typeCharacter(el, char);
+          const d = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, char);
+          if (await typeSleep(d)) return true;
+          elapsed += d;
+          ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
+
+          const burstExtra = await maybeBurstPause(burst, pScale);
+          if (burstExtra === null) return true;
+          elapsed += burstExtra;
         } else {
           await typeCharacter(el, char);
 
           // Double-letter slip
           const doDoubleSlip = opts.mistakes && /[a-zA-Z]/.test(char) && Math.random() < 0.015;
 
-          const d = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult);
+          const d = charDelay(delay * sentenceMult, speedMult, opts.varSpeed, wordMult, char);
           if (await typeSleep(d)) return true;
           elapsed += d;
           ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
 
           if (doDoubleSlip) {
             await typeCharacter(el, char);
-            if (await interruptibleSleep(randomBetween(100, 350))) return true;
+            if (await interruptibleSleep(randomBetween(100, 350) * pScale)) return true;
             await typeBackspace(el);
-            if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult))) return true;
+            if (await typeSleep(charDelay(delay, speedMult, opts.varSpeed, wordMult, ' '))) return true;
           }
+
+          const burstExtra = await maybeBurstPause(burst, pScale);
+          if (burstExtra === null) return true;
+          elapsed += burstExtra;
         }
 
         // Punctuation pause — after typing a punctuation char
         if (opts.punctPauses && '.,:;!?'.includes(char)) {
           punctCount++;
           if (punctCount >= nextPunctThreshold) {
-            if (await interruptibleSleep(randomBetween(1000, 2000))) return true;
+            if (await interruptibleSleep(randomBetween(1000 * pScale, 2000 * pScale))) return true;
             punctCount = 0;
             nextPunctThreshold = randomInt(3, 5);
           }
@@ -410,18 +551,20 @@ async function typeText(el, text, delay, opts) {
 
       // Self-interrupt block — after char loop
       if (doSelfInterrupt) {
-        if (await interruptibleSleep(randomBetween(400, 1200))) return true;
+        if (await interruptibleSleep(randomBetween(400 * pScale, 1200 * pScale))) return true;
         const wordChars = [...token];
         for (let i = 0; i < wordChars.length; i++) {
           if (await checkStop()) return true;
           await typeBackspace(el);
-          if (await typeSleep(charDelay(delay * 0.85, 1.0, false, 1.0))) return true;
+          const d = charDelay(delay * 0.85, 1.0, false, 1.0, ' ');
+          if (await typeSleep(d)) return true;
+          elapsed += d;
         }
-        if (await interruptibleSleep(randomBetween(300, 800))) return true;
+        if (await interruptibleSleep(randomBetween(300 * pScale, 800 * pScale))) return true;
         for (const ch of token) {
           if (await checkStop()) return true;
           await typeCharacter(el, ch);
-          const d = charDelay(delay, speedMult, opts.varSpeed, wordMult);
+          const d = charDelay(delay, speedMult, opts.varSpeed, wordMult, ch);
           if (await typeSleep(d)) return true;
           elapsed += d;
           ({ speedMult, charsUntilSpeedShift } = tickSpeed(speedMult, charsUntilSpeedShift, opts.varSpeed));
@@ -454,9 +597,24 @@ async function typeText(el, text, delay, opts) {
 // ---------------------------------------------------------------------------
 // Speed helpers
 // ---------------------------------------------------------------------------
-function charDelay(base, mult, varSpeed, wordMult = 1) {
+function charDelay(base, mult, varSpeed, wordMult = 1, ch = ' ') {
   const effective = (varSpeed ? base * mult : base) * wordMult;
-  return effective + jitter(effective * 0.3);
+  const shiftExtra = globalThis.TextToWriteConfig.requiresShift(ch)
+    ? effective * (0.12 + Math.random() * 0.1)
+    : 0;
+  return Math.max(0, effective + shiftExtra + jitter(effective * 0.3));
+}
+
+// Burst-typing rhythm: every few characters, add a short extra pause (scaled
+// by typing speed) so the cadence isn't perfectly metronomic. Returns the
+// extra ms elapsed (0 if no pause this call), or null if typing was stopped.
+async function maybeBurstPause(burst, scale) {
+  burst.counter--;
+  if (burst.counter > 0) return 0;
+  burst.counter = randomInt(3, 8);
+  const extra = Math.max(0, randomBetween(40, 150) * scale);
+  if (await typeSleep(extra)) return null;
+  return extra;
 }
 
 function tickSpeed(mult, countdown, varSpeed) {

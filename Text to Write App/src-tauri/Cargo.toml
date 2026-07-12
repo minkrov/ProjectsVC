@@ -1,0 +1,29 @@
+[package]
+name = "text-to-write-app"
+version = "1.2.0"
+description = "Types human-like text into the focused field of any app on macOS"
+authors = ["minkr"]
+edition = "2021"
+
+[lib]
+name = "text_to_write_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
+rand = { version = "0.8", features = ["small_rng"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
+accessibility-sys = "0.1"

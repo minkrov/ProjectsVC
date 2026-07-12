@@ -71,6 +71,95 @@
       margin-bottom: 14px;
     }
 
+    .mode-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      margin-bottom: 14px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 8px 0;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      background: #313244;
+      color: #a6adc8;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      user-select: none;
+      letter-spacing: 0.04em;
+    }
+
+    .mode-btn:hover {
+      border-color: #cba6f7;
+      color: #cdd6f4;
+    }
+
+    .mode-btn.active {
+      background: #cba6f7;
+      border-color: #cba6f7;
+      color: #1e1e2e;
+    }
+
+    .personalities-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .personality-card {
+      padding: 10px 12px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .personality-card:hover {
+      border-color: #cba6f7;
+    }
+
+    .personality-card.active {
+      border-color: #cba6f7;
+      background: #3a3354;
+    }
+
+    .personality-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .personality-card.active .personality-name::after {
+      content: "Active";
+      margin-left: auto;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #cba6f7;
+      background: #1e1e2e;
+      border: 1px solid #cba6f7;
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+
+    .personality-desc {
+      font-size: 11px;
+      color: #a6adc8;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
     .speed-btn {
       flex: 1;
       padding: 7px 0;
@@ -552,6 +641,42 @@
   <label for="text-input">Text to type</label>
   <textarea id="text-input" placeholder="Enter text to type into the page…"></textarea>
 
+  <div class="mode-group">
+    <div class="mode-btn active" data-mode="custom">Custom</div>
+    <div class="mode-btn" data-mode="personalities">Personalities</div>
+  </div>
+
+  <div class="pause-row" style="margin-bottom: 14px;">
+    <div class="pause-row-label">
+      Start delay
+      <span>Countdown before typing begins</span>
+    </div>
+    <div class="pause-input-wrap">
+      <input type="number" id="start-delay" value="3" min="1" max="60">
+      <span class="unit">sec</span>
+    </div>
+  </div>
+
+  <div id="personalities-panel" class="personalities-panel" style="display: none;">
+    <div class="personality-card" data-personality="casual">
+      <div class="personality-name">Casual</div>
+      <div class="personality-desc">Quick and relaxed — fast typing with light pauses and on-the-fly typo fixes.</div>
+    </div>
+    <div class="personality-card" data-personality="focused">
+      <div class="personality-name">Focused</div>
+      <div class="personality-desc">Steady, balanced typing — a natural everyday pace with occasional corrections.</div>
+    </div>
+    <div class="personality-card" data-personality="careful">
+      <div class="personality-name">Careful</div>
+      <div class="personality-desc">Slower and deliberate — longer thinking pauses and thoughtful corrections.</div>
+    </div>
+    <div class="personality-card" data-personality="distracted">
+      <div class="personality-name">Distracted</div>
+      <div class="personality-desc">Irregular rhythm — long pauses, bursts of typing, and occasional slip-ups.</div>
+    </div>
+  </div>
+
+  <div id="custom-panel">
   <div class="speed-label">Typing speed</div>
   <div class="speed-group">
     <div class="speed-btn" data-speed="slow">Slow</div>
@@ -683,8 +808,16 @@
             <span>Occasionally finish a word, delete it, then retype</span>
           </label>
         </div>
+        <div class="vary-row">
+          <input type="checkbox" id="quick-corrections">
+          <label for="quick-corrections">
+            Quick self-corrections
+            <span>Catch and instantly fix small typos as you type</span>
+          </label>
+        </div>
       </div>
     </div>
+  </div>
   </div>
 
   <div class="btn-row" style="margin-top: 14px;">
